@@ -775,6 +775,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tungstenite",
+ "windows",
 ]
 
 [[package]]

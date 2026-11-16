@@ -1,6 +1,9 @@
+mod focus;
+mod github;
 mod obs;
 mod placement;
 
+use github::{Gh, GithubState, Refresher};
 use obs::{ObsState, Timing, Watcher};
 use placement::{MonitorInfo, Placement, choose_placement};
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
@@ -59,6 +62,42 @@ fn obs_state(watcher: tauri::State<'_, Watcher>) -> ObsState {
     watcher.current()
 }
 
+/// Bring a session's terminal tab or window to the front, or open a terminal
+/// attached to a background session. COM/UIA work runs on a blocking thread.
+#[tauri::command]
+async fn focus_terminal(
+    pid: u32,
+    session_id: String,
+    title: String,
+    kind: focus::SessionKind,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        focus::focus_terminal(pid, &session_id, &title, kind)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Current GitHub state, for a webview that mounts after the last `github-state` event.
+#[tauri::command]
+fn github_state(refresher: tauri::State<'_, Refresher>) -> GithubState {
+    refresher.current()
+}
+
+/// Start the GitHub refresher: `gh` now, then every `REFRESH_INTERVAL`.
+fn start_github_refresher(app: &tauri::App) {
+    let handle = app.handle().clone();
+    let gh = Gh::new(github::run_gh);
+    let refresher = Refresher::spawn(
+        move || gh.fetch(),
+        move |state| {
+            let _ = handle.emit("github-state", state);
+        },
+        github::REFRESH_INTERVAL,
+    );
+    app.manage(refresher);
+}
+
 /// Start the OBS watcher; it re-reads OBS's own config file on every attempt.
 fn start_obs_watcher(app: &tauri::App) {
     let handle = app.handle().clone();
@@ -75,18 +114,26 @@ fn start_obs_watcher(app: &tauri::App) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![obs_state])
+        .invoke_handler(tauri::generate_handler![
+            obs_state,
+            github_state,
+            focus_terminal
+        ])
         .setup(|app| {
             start_obs_watcher(app);
+            start_github_refresher(app);
             Ok(place_main_window(app)?)
         })
         .build(tauri::generate_context!())
         .expect("error while building edge-deck")
         .run(|app, event| {
-            if let tauri::RunEvent::Exit = event
-                && let Some(watcher) = app.try_state::<Watcher>()
-            {
-                watcher.stop();
+            if let tauri::RunEvent::Exit = event {
+                if let Some(watcher) = app.try_state::<Watcher>() {
+                    watcher.stop();
+                }
+                if let Some(refresher) = app.try_state::<Refresher>() {
+                    refresher.stop();
+                }
             }
         });
 }
