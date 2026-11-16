@@ -2,7 +2,11 @@
 
 A fullscreen touch app for a 2560x720 display. Built with Tauri v2, React, Vite and Tailwind, styled entirely with `@crawfordyoung/ui`.
 
-Status: the window places itself on the 2560x720 display and the app follows OBS stream state. The setup rail and the Stream and Code setups are not built yet.
+Status: the window places itself on the 2560x720 display, the setup rail switches between Stream and Code, and the app follows OBS stream state. The Stream and Code setups themselves are placeholders.
+
+## Setup rail
+
+A 112px rail at the left edge lists the setups (Stream, Code) as 96px touch targets, with a clock at the bottom. Tapping one switches setup, and the last tapped setup is restored on launch (kept in the webview's `localStorage`). When OBS starts streaming the app switches to Stream by itself, and when the stream ends it returns to the last tapped setup. A tap during a stream is respected until the stream state next changes. The rules are a pure reducer in `src/setups.ts`; `src/useSetups.ts` wires it to storage and the `obs-state` event.
 
 ## Window placement
 
