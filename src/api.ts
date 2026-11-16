@@ -14,7 +14,66 @@ export function obsState(): Promise<ObsState> {
   return invoke<ObsState>('obs_state')
 }
 
+export type SessionKind = 'interactive' | 'background'
+
+/** The session whose terminal `focusTerminal` brings forward. */
+export interface FocusTarget {
+  pid: number
+  sessionId: string
+  title: string
+  kind: SessionKind
+}
+
+/**
+ * Bring the session's terminal tab or window to the front, or open a terminal
+ * attached to a background session. Rejects with the backend's message.
+ */
+export function focusTerminal(session: FocusTarget): Promise<void> {
+  const { pid, sessionId, title, kind } = session
+  return invoke<undefined>('focus_terminal', { pid, sessionId, title, kind })
+}
+
 /** Call `cb` on every OBS state change; resolves to the unsubscribe function. */
 export function onObsState(cb: (state: ObsState) => void): Promise<UnlistenFn> {
   return listen<ObsState>('obs-state', (event) => cb(event.payload))
+}
+
+/** "loading" until the first `gh` run returns; every state but "ok" has empty lists. */
+export type GithubStatus = 'loading' | 'ok' | 'gh-missing' | 'signed-out' | 'error'
+
+/** A PR's latest-commit check rollup; "none" when it has no checks. */
+export type Checks = 'passing' | 'failing' | 'pending' | 'none'
+
+export interface PullRequest {
+  /** owner/name */
+  repo: string
+  number: number
+  title: string
+  url: string
+  draft: boolean
+  checks: Checks
+}
+
+export interface GithubIssue {
+  /** owner/name */
+  repo: string
+  number: number
+  title: string
+  url: string
+}
+
+export interface GithubState {
+  status: GithubStatus
+  prs: PullRequest[]
+  issues: GithubIssue[]
+}
+
+/** The backend's current GitHub state. */
+export function githubState(): Promise<GithubState> {
+  return invoke<GithubState>('github_state')
+}
+
+/** Call `cb` on every GitHub state change; resolves to the unsubscribe function. */
+export function onGithubState(cb: (state: GithubState) => void): Promise<UnlistenFn> {
+  return listen<GithubState>('github-state', (event) => cb(event.payload))
 }
