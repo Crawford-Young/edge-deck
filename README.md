@@ -38,6 +38,12 @@ A background thread watches OBS over obs-websocket v5 on `127.0.0.1` so the shel
 
 The `focus_terminal` command (`focusTerminal()` in `src/api.ts`) brings a Claude session's Windows Terminal to the front. It walks the session's process ancestry to the nearest `WindowsTerminal.exe`, lists that process's visible windows and their tabs through UI Automation, and then, in this order: selects the first tab whose name is the session's title, with at most a status glyph before it, and raises its window; raises all of that terminal's windows if no tab matches; for a background session with no terminal, opens a new window running `wt.exe -w new claude attach <id>`; otherwise it fails with "no terminal window found for this session". Session ids are validated first (1 to 128 ASCII letters, digits, `-` and `_`) and passed as an argument vector, never through a shell. The decisions are pure functions in `src-tauri/src/focus/plan.rs`; the Win32 side is `src-tauri/src/focus/windows.rs`.
 
+## Agents engine
+
+The Code setup's data comes from strate-core's ingest engine, which edge-deck runs in-process (`src-tauri/src/agents/`) into a store of its own, `<app_data_dir>/edge-deck-agents.db`; it never opens or writes strate's store. The engine reads the Claude config dir (`CLAUDE_CONFIG_DIR`, else `~/.claude`) and polls `claude agents --json --all` every second when a `claude` binary is found. After each store change (debounced by the engine) the host emits a `code-changed` event with no payload; the webview answers it with the `code_snapshot` command, which returns `{ graphs, needsYou, header }` read through one long-lived read-only connection to the store. A needs-you row for a parked background job focuses by its short background id, the `<id>` of `claude attach <id>`, not by its session id. If the engine cannot start, `code_snapshot` returns that error rather than the app failing.
+
+strate-core is a git dependency in `src-tauri/Cargo.toml`, pinned by `rev`, so a strate-core change reaches edge-deck only by bumping that rev.
+
 ## Prerequisites
 
 - Windows 11 with WebView2 (preinstalled on Windows 11)

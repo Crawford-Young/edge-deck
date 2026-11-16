@@ -1,7 +1,7 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
-import type { ObsState } from './api'
+import type { CodeSnapshot, ObsState } from './api'
 import * as api from './api'
 
 vi.mock('./api', () => ({
@@ -9,9 +9,32 @@ vi.mock('./api', () => ({
   onObsState: vi.fn(),
   githubState: vi.fn(),
   onGithubState: vi.fn(),
+  codeSnapshot: vi.fn(),
+  onCodeChanged: vi.fn(),
+  focusTerminal: vi.fn(),
 }))
 
 let cb: (s: ObsState) => void
+let codeChanged: () => void
+
+const live = (): CodeSnapshot => ({
+  graphs: [],
+  needsYou: [
+    {
+      label: 'Planner',
+      waitingFor: 'approve the plan',
+      sinceMs: Date.now() - 30_000,
+      focus: { pid: 11, sessionId: 'sess-a', kind: 'interactive', title: 'demo' },
+    },
+  ],
+  header: {
+    startedAtMs: Date.now() - 60_000,
+    sessionCostUsd: 2.5,
+    todayUsd: 7,
+    liveAgents: 4,
+    needYou: 1,
+  },
+})
 const ev = (streaming: boolean): ObsState => ({ connection: 'connected', streaming })
 
 async function mount() {
@@ -28,6 +51,13 @@ beforeEach(() => {
   vi.mocked(api.obsState).mockResolvedValue({ connection: 'off', streaming: false })
   vi.mocked(api.onGithubState).mockResolvedValue((() => {}) as never)
   vi.mocked(api.githubState).mockResolvedValue({ status: 'loading', prs: [], issues: [] })
+  vi.mocked(api.onCodeChanged).mockImplementation((fn) => {
+    codeChanged = fn
+    return Promise.resolve((() => {}) as never)
+  })
+  vi.mocked(api.codeSnapshot).mockReturnValue(new Promise(() => {}))
+  vi.mocked(api.focusTerminal).mockReset()
+  vi.mocked(api.focusTerminal).mockResolvedValue(undefined)
 })
 
 describe('App', () => {
@@ -74,5 +104,49 @@ describe('App', () => {
     expect(screen.queryByRole('region', { name: 'Needs you' })).toBeNull()
     act(() => cb(ev(false)))
     expect(screen.getByRole('region', { name: 'Needs you' })).toBeInTheDocument()
+  })
+
+  it('fills the header, needs-you panel and agents count from the code snapshot', async () => {
+    vi.mocked(api.codeSnapshot).mockResolvedValue(live())
+    await mount()
+    expect(screen.queryByText('No live session')).toBeNull()
+    expect(screen.getByText('$2.50')).toBeInTheDocument()
+    expect(screen.getByText('1 need you')).toBeInTheDocument()
+    const needs = screen.getByRole('region', { name: 'Needs you' })
+    expect(within(needs).getByText('approve the plan')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Agents' })).getByText('4'),
+    ).toBeInTheDocument()
+  })
+
+  it('tapping a needs-you row focuses that session', async () => {
+    vi.mocked(api.codeSnapshot).mockResolvedValue(live())
+    await mount()
+    fireEvent.click(screen.getByRole('button', { name: /Planner/ }))
+    expect(api.focusTerminal).toHaveBeenCalledWith({
+      pid: 11,
+      sessionId: 'sess-a',
+      kind: 'interactive',
+      title: 'demo',
+    })
+  })
+
+  it('refetches on code-changed', async () => {
+    vi.mocked(api.codeSnapshot).mockResolvedValue(live())
+    await mount()
+    vi.mocked(api.codeSnapshot).mockResolvedValue({
+      graphs: [],
+      needsYou: [],
+      header: { startedAtMs: null, sessionCostUsd: null, todayUsd: 0, liveAgents: 0, needYou: 0 },
+    })
+    await act(async () => codeChanged())
+    expect(screen.getByText('Nothing needs you')).toBeInTheDocument()
+    expect(screen.queryByText('1 need you')).toBeNull()
+  })
+
+  it('shows a failed code read as an alert', async () => {
+    vi.mocked(api.codeSnapshot).mockRejectedValue('the Code store did not open')
+    await mount()
+    expect(screen.getByRole('alert')).toHaveTextContent('the Code store did not open')
   })
 })

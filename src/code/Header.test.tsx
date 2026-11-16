@@ -6,8 +6,8 @@ import type { HeaderData } from './types'
 const NOW = new Date(2030, 0, 15, 12, 0, 0).getTime()
 
 const data = (over: Partial<HeaderData> = {}): HeaderData => ({
-  startedAt: NOW - 45_000,
-  sessionUsd: 1.2,
+  startedAtMs: NOW - 45_000,
+  sessionCostUsd: 1.2,
   todayUsd: 12,
   liveAgents: 3,
   needYou: 0,
@@ -30,14 +30,14 @@ describe('Header', () => {
     expect(screen.queryByText(/agent/)).toBeNull()
   })
 
-  it('shows running time as h:mm:ss', () => {
-    render(<Header data={data({ startedAt: NOW - (3600 + 125) * 1000 })} />)
+  it('shows running time from startedAtMs as h:mm:ss', () => {
+    render(<Header data={data({ startedAtMs: NOW - (3600 + 125) * 1000 })} />)
     expect(screen.getByText('1:02:05')).toBeInTheDocument()
     expect(screen.queryByText('No live session')).toBeNull()
   })
 
   it('ticks the running time each second', () => {
-    render(<Header data={data({ startedAt: NOW - 5_000 })} />)
+    render(<Header data={data({ startedAtMs: NOW - 5_000 })} />)
     expect(screen.getByText('0:00:05')).toBeInTheDocument()
     act(() => {
       vi.advanceTimersByTime(3_000)
@@ -46,9 +46,25 @@ describe('Header', () => {
   })
 
   it('shows dollars with two decimals for session and today', () => {
-    render(<Header data={data({ sessionUsd: 1.2, todayUsd: 12 })} />)
+    render(<Header data={data({ sessionCostUsd: 1.2, todayUsd: 12 })} />)
     expect(screen.getByText('$1.20')).toBeInTheDocument()
     expect(screen.getByText('$12.00')).toBeInTheDocument()
+  })
+
+  it('shows a placeholder, never NaN or $0.00, for an unknown start and session cost', () => {
+    const { container } = render(
+      <Header data={data({ startedAtMs: null, sessionCostUsd: null, todayUsd: 12 })} />,
+    )
+    expect(container.textContent).not.toMatch(/NaN|undefined|null/)
+    expect(screen.queryByText('$0.00')).toBeNull()
+    expect(screen.queryByText(/^\d+:\d\d:\d\d$/)).toBeNull()
+    expect(screen.getAllByText('—')).toHaveLength(2)
+    expect(screen.getByText('$12.00')).toBeInTheDocument()
+  })
+
+  it('still shows a real zero session cost as $0.00', () => {
+    render(<Header data={data({ sessionCostUsd: 0, todayUsd: 5 })} />)
+    expect(screen.getByText('$0.00')).toBeInTheDocument()
   })
 
   it('pluralises agents', () => {

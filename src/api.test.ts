@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  codeSnapshot,
+  onCodeChanged,
+  type CodeSnapshot,
   focusTerminal,
   githubState,
   obsState,
@@ -131,6 +134,50 @@ describe('onGithubState', () => {
     handler({ payload: sample })
     handler({ payload: { status: 'signed-out', prs: [], issues: [] } })
     expect(seen).toEqual([sample, { status: 'signed-out', prs: [], issues: [] }])
+    expect(stop).toBe(unlisten)
+  })
+})
+
+const codeSample: CodeSnapshot = {
+  graphs: [],
+  needsYou: [
+    {
+      label: 'planner',
+      waitingFor: 'approve the plan',
+      sinceMs: 1000,
+      focus: { pid: 0, sessionId: 's-1', kind: 'background', title: 'demo' },
+    },
+  ],
+  header: { startedAtMs: null, sessionCostUsd: null, todayUsd: 0, liveAgents: 0, needYou: 1 },
+}
+
+describe('codeSnapshot', () => {
+  it('asks the backend for the current Code snapshot', async () => {
+    invoke.mockResolvedValueOnce(codeSample)
+    await expect(codeSnapshot()).resolves.toEqual(codeSample)
+    expect(invoke).toHaveBeenCalledWith('code_snapshot')
+  })
+
+  it('rejects with the backend error message', async () => {
+    invoke.mockRejectedValueOnce('the Code store did not open')
+    await expect(codeSnapshot()).rejects.toBe('the Code store did not open')
+  })
+})
+
+describe('onCodeChanged', () => {
+  it('subscribes to code-changed and calls back once per event, without a payload', async () => {
+    const unlisten = vi.fn()
+    listen.mockResolvedValueOnce(unlisten)
+    const cb = vi.fn()
+
+    const stop = await onCodeChanged(cb)
+
+    expect(listen).toHaveBeenCalledWith('code-changed', expect.any(Function))
+    const [, handler] = listen.mock.lastCall as [string, (event: { payload: null }) => void]
+    handler({ payload: null })
+    handler({ payload: null })
+    expect(cb).toHaveBeenCalledTimes(2)
+    expect(cb).toHaveBeenCalledWith()
     expect(stop).toBe(unlisten)
   })
 })

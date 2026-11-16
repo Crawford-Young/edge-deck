@@ -1,12 +1,26 @@
+pub mod agents;
 mod focus;
 mod github;
 mod obs;
 mod placement;
 
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use github::{Gh, GithubState, Refresher};
 use obs::{ObsState, Timing, Watcher};
 use placement::{MonitorInfo, Placement, choose_placement};
+use strate_core::engine::Engine;
+use strate_core::registry::resolve_claude;
 use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
+
+/// The Code engine's store, or why it did not start, and the engine itself,
+/// taken and stopped on exit.
+struct Code {
+    reader: Result<Arc<agents::Reader>, String>,
+    engine: Mutex<Option<Engine>>,
+}
 
 fn describe(monitor: &tauri::Monitor, primary: Option<&tauri::Monitor>) -> MonitorInfo {
     MonitorInfo {
@@ -98,6 +112,53 @@ fn start_github_refresher(app: &tauri::App) {
     app.manage(refresher);
 }
 
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as i64)
+}
+
+/// The Code setup's graph, needs-you and header, read from edge-deck's own
+/// store on a blocking thread. An error when the engine did not start or
+/// the store cannot be read.
+#[tauri::command]
+async fn code_snapshot(code: tauri::State<'_, Code>) -> Result<agents::Snapshot, String> {
+    let reader = code.reader.clone()?;
+    tauri::async_runtime::spawn_blocking(move || reader.read(now_ms()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Start strate-core's engine on the real Claude config dir into edge-deck's
+/// own store; each store change emits `code-changed`.
+fn start_code_engine(app: &tauri::App) -> Result<(PathBuf, Engine), String> {
+    let data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&data).map_err(|e| e.to_string())?;
+    let home = app.path().home_dir().ok();
+    let root = agents::config_root(std::env::var_os("CLAUDE_CONFIG_DIR"), home.clone())
+        .ok_or("no home dir to find ~/.claude in, and CLAUDE_CONFIG_DIR is unset")?;
+    let claude = resolve_claude(None, std::env::var_os("PATH"), home);
+    let config = agents::engine_config(root, &data, claude);
+    let db = config.db.clone();
+    let handle = app.handle().clone();
+    let engine = agents::start(config, move || {
+        let _ = handle.emit(agents::CHANGED_EVENT, ());
+    })?;
+    Ok((db, engine))
+}
+
+/// Manage the Code engine, or its start error for `code_snapshot` to report.
+fn manage_code_engine(app: &tauri::App) {
+    let (db, engine) = match start_code_engine(app) {
+        Ok((db, engine)) => (Ok(Arc::new(agents::Reader::new(db))), Some(engine)),
+        Err(error) => (Err(error), None),
+    };
+    app.manage(Code {
+        reader: db,
+        engine: Mutex::new(engine),
+    });
+}
+
 /// Start the OBS watcher; it re-reads OBS's own config file on every attempt.
 fn start_obs_watcher(app: &tauri::App) {
     let handle = app.handle().clone();
@@ -117,11 +178,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             obs_state,
             github_state,
-            focus_terminal
+            focus_terminal,
+            code_snapshot
         ])
         .setup(|app| {
             start_obs_watcher(app);
             start_github_refresher(app);
+            manage_code_engine(app);
             Ok(place_main_window(app)?)
         })
         .build(tauri::generate_context!())
@@ -133,6 +196,15 @@ pub fn run() {
                 }
                 if let Some(refresher) = app.try_state::<Refresher>() {
                     refresher.stop();
+                }
+                if let Some(code) = app.try_state::<Code>()
+                    && let Some(engine) = code
+                        .engine
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .take()
+                {
+                    engine.stop();
                 }
             }
         });

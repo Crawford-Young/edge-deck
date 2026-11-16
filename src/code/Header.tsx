@@ -4,6 +4,8 @@ import { runningTime } from './format'
 import type { HeaderData } from './types'
 import { useNow } from './useNow'
 
+const UNKNOWN = '—'
+
 function Stat({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline gap-2.5">
@@ -21,8 +23,12 @@ export function Header({ data }: { data: HeaderData | null }) {
         <span className="text-muted-foreground">No live session</span>
       ) : (
         <>
-          <Stat label="Running">{runningTime(now - data.startedAt)}</Stat>
-          <Stat label="This session">{`$${data.sessionUsd.toFixed(2)}`}</Stat>
+          <Stat label="Running">
+            {data.startedAtMs === null ? UNKNOWN : runningTime(now - data.startedAtMs)}
+          </Stat>
+          <Stat label="This session">
+            {data.sessionCostUsd === null ? UNKNOWN : `$${data.sessionCostUsd.toFixed(2)}`}
+          </Stat>
           <Stat label="Today">{`$${data.todayUsd.toFixed(2)}`}</Stat>
           <Stat label="Live">{`${data.liveAgents} ${data.liveAgents === 1 ? 'agent' : 'agents'}`}</Stat>
           <div className="flex-1" />
