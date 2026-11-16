@@ -20,7 +20,7 @@ serde_json = "1.0.154"
 sha2 = "0.11.1"
 tungstenite = "0.30.0"
 # The ingest engine and live views behind the Code setup. Pinned to strate main.
-strate-core = { git = "https://github.com/Crawford-Young/strate", rev = "aa782c4" }
+strate-core = { git = "https://github.com/Crawford-Young/strate", rev = "00569e9" }
 # The reader connection type strate-core's views take; same version strate-core locks.
 rusqlite = "0.41.1"
 

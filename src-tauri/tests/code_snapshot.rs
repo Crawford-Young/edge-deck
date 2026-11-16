@@ -38,7 +38,8 @@
 //! - `header`: `{ startedAtMs, sessionCostUsd, todayUsd, liveAgents, needYou }`
 //!   of the oldest live root; `todayUsd` is 0 with no spend.
 //! - `focus`: `{ pid, sessionId, kind, title }` or null; `pid` is a u32 (0 when
-//!   the session has no pid), `kind` is `interactive` or `background`.
+//!   the session has no pid), `kind` is `interactive` or `background`
+//!   (the registry's kind); a background session's `sessionId` is its bg id.
 //!   A subagent or teammate carries its parent session's focus; the title is
 //!   that session's orchestrator name (strate-core exposes no ai-title).
 
@@ -537,9 +538,117 @@ fn a_session_with_no_pid_focuses_as_background() {
     let gamma = graph_of(&snap, "s-gamma");
     let focus = &root_of(gamma)["focus"];
     assert_eq!(focus["kind"], "background");
-    assert_eq!(focus["sessionId"], "s-gamma");
+    // `claude attach` takes the registry's short id (bg-3), not the session id.
+    assert_eq!(focus["sessionId"], "bg-3");
     assert_eq!(focus["pid"], 0);
     assert_eq!(focus["title"], "gamma-3");
+}
+
+/// Four live roots, each a different registry shape:
+/// - `s-run`: a running background session with pid 4401 and bg id
+///   `abcd1234`, with one subagent;
+/// - `s-live`: interactive, pid 4402, no bg id;
+/// - `s-nobg`: background with pid 4403 and no bg id;
+/// - `s-norow`: a transcript with no registry row (never live, so never drawn).
+fn kinds_fixture(tag: &str) -> (Value, Scratch) {
+    let dir = scratch(tag);
+    let db = dir.join("kinds.db");
+    let mut store = Store::open(&db).expect("store");
+    for (session, uuid, replies) in [
+        ("s-run", "r", vec!["toolu_9"]),
+        ("s-live", "l", vec![]),
+        ("s-nobg", "n", vec![]),
+        ("s-norow", "z", vec![]),
+    ] {
+        store
+            .ingest(&batch(
+                &format!("{session}.jsonl"),
+                &[
+                    title(session),
+                    prompt(&format!("{uuid}1"), "2026-10-08T10:00:00.000Z"),
+                    reply(
+                        &format!("{uuid}2"),
+                        "2026-10-08T10:00:10.000Z",
+                        10,
+                        0,
+                        &replies,
+                    ),
+                ],
+            ))
+            .expect("session");
+    }
+    store
+        .ingest(&batch(
+            "s-run/subagents/agent-r1.jsonl",
+            &[reply("r4", "2026-10-08T10:00:20.000Z", 10, 0, &[])],
+        ))
+        .expect("subagent");
+    store
+        .ingest_graph(&Graph {
+            subagents: vec![dispatched("s-run", "r1", "toolu_9")],
+            ..Graph::default()
+        })
+        .expect("graph");
+    store
+        .apply_registry(&[
+            appeared(
+                r#"{"pid":4401,"id":"abcd1234","cwd":"/work/run","kind":"background",
+                    "startedAt":1791000000000,"sessionId":"s-run","name":"s-run","state":"running"}"#,
+            ),
+            appeared(
+                r#"{"pid":4402,"cwd":"/work/live","kind":"interactive","startedAt":1791000100000,
+                    "sessionId":"s-live","name":"s-live","status":"busy"}"#,
+            ),
+            appeared(
+                r#"{"pid":4403,"cwd":"/work/nobg","kind":"background","startedAt":1791000200000,
+                    "sessionId":"s-nobg","name":"s-nobg","state":"running"}"#,
+            ),
+        ])
+        .expect("registry");
+    let conn = Store::open_reader(&db).expect("reader");
+    let snap = agents::snapshot(&conn, NOW_MS).expect("snapshot");
+    (serde_json::to_value(snap).expect("json"), dir)
+}
+
+#[test]
+fn a_running_background_session_with_a_pid_focuses_by_its_bg_id() {
+    let (snap, _dir) = kinds_fixture("running-bg");
+    let run = graph_of(&snap, "s-run");
+    let focus = &root_of(run)["focus"];
+    assert_eq!(focus["kind"], "background");
+    assert_eq!(focus["sessionId"], "abcd1234");
+    assert_eq!(focus["pid"], 4401);
+    let sub = agents_of(run)
+        .iter()
+        .find(|a| a["kind"] == "subagent")
+        .expect("its subagent");
+    assert_eq!(sub["focus"], *focus, "the subagent follows its session");
+}
+
+#[test]
+fn an_interactive_session_keeps_its_pid_session_id_and_kind() {
+    let (snap, _dir) = kinds_fixture("interactive");
+    let focus = &root_of(graph_of(&snap, "s-live"))["focus"];
+    assert_eq!(focus["kind"], "interactive");
+    assert_eq!(focus["sessionId"], "s-live");
+    assert_eq!(focus["pid"], 4402);
+}
+
+#[test]
+fn a_background_session_with_no_bg_id_keeps_its_session_id() {
+    let (snap, _dir) = kinds_fixture("bg-no-id");
+    let focus = &root_of(graph_of(&snap, "s-nobg"))["focus"];
+    assert_eq!(focus["kind"], "background");
+    assert_eq!(focus["sessionId"], "s-nobg");
+    assert_eq!(focus["pid"], 4403);
+    // No registry row, no live tab: nothing is drawn to focus.
+    assert!(
+        snap["graphs"]
+            .as_array()
+            .expect("graphs")
+            .iter()
+            .all(|g| g["sessionId"] != "s-norow")
+    );
 }
 
 // ---- waits: bg ids, null sinceMs, label fallbacks ----
