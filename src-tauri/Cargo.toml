@@ -1,0 +1,16 @@
+[package]
+name = "edge-deck"
+version = "0.1.0"
+description = "Fullscreen touch app for a 2560x720 display"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "edge_deck_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.1", features = [] }
