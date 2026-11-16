@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+@config '../tailwind.config.ts';
+@source '../node_modules/@crawfordyoung/ui/src/**/*.{ts,tsx}';
+@source '../node_modules/@crawfordyoung/ui/dist/index.mjs';
+
+@import '@crawfordyoung/ui/styles.css';
+
+:root {
+  color-scheme: dark;
+}
+
+/* The app fills the window; the page itself never scrolls. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
