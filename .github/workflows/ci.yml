@@ -13,6 +13,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+      # cargo's checkout of the strate-core git dep passes MAX_PATH (its fixtures).
+      - run: git config --global core.longpaths true
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
