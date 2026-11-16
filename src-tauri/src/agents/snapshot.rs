@@ -295,7 +295,12 @@ fn wait(row: &NeedsYou, graphs: &[LiveGraph], focus: &HashMap<String, Focus>) ->
         .unwrap_or_else(|| UNKNOWN.to_owned());
     Wait {
         label,
-        waiting_for: row.waiting_for.clone(),
+        // A parked background session has no reason in the registry; say where it is.
+        waiting_for: row.waiting_for.clone().or_else(|| {
+            row.bg_id
+                .as_ref()
+                .map(|_| "blocked in the background".to_owned())
+        }),
         since_ms: row.since_ms,
         focus,
     }

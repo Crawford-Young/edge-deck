@@ -207,16 +207,15 @@ describe('AgentWeb layout', () => {
 })
 
 describe('AgentWeb re-fit and clusters', () => {
-  it('Re-fit fits the view to every node of every island', () => {
-    const a = island('a', 3)
-    const b = island('b', 2)
-    render(<AgentWeb islands={[a, b]} />)
+  it("Re-fit fits the view to every island's cluster target", () => {
+    render(<AgentWeb islands={[island('a', 3), island('b', 2)]} />)
     fitView.mockClear()
     fireEvent.click(screen.getByRole('button', { name: 'Re-fit' }))
     expect(fitView).toHaveBeenCalledTimes(1)
     const ids = fitIds(lastFit())
     expect(ids).toBeDefined()
-    expect(ids).toEqual(expect.arrayContaining([...keys(a), ...keys(b)]))
+    expect(ids).toHaveLength(2)
+    expect(ids?.every((id) => id.startsWith('cluster:'))).toBe(true)
   })
 
   it('each island has a "Zoom to cluster" target named for its root and charge', () => {
@@ -236,17 +235,14 @@ describe('AgentWeb re-fit and clusters', () => {
     expect(cluster).not.toHaveAccessibleName(/null|undefined/)
   })
 
-  it('tapping a cluster fits the view to that island only', () => {
-    const a = island('a', 3)
-    const b = island('b', 2)
-    render(<AgentWeb islands={[a, b]} />)
+  it("tapping a cluster fits the view to that island's cluster target only", () => {
+    render(<AgentWeb islands={[island('a', 3), island('b', 2)]} />)
     fitView.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /^Zoom to cluster.*role-b-1/ }))
     expect(fitView).toHaveBeenCalledTimes(1)
     const ids = fitIds(lastFit())
-    expect(ids).toBeDefined()
-    expect(ids).toEqual(expect.arrayContaining(keys(b)))
-    for (const key of keys(a)) expect(ids).not.toContain(key)
+    expect(ids).toHaveLength(1)
+    expect(ids?.[0]).toMatch(/^cluster:.*:b$/)
   })
 })
 

@@ -653,6 +653,28 @@ fn a_wait_with_no_bg_id_keeps_its_session_id_to_focus_by() {
 }
 
 #[test]
+fn a_background_wait_with_a_bg_id_and_no_reason_reads_blocked_in_the_background() {
+    let (snap, _dir) = waits_fixture("bg-reason");
+    // bg-4 (since 7000) has a bg id and the registry gave it no waitingFor.
+    assert_eq!(
+        wait_since(&snap, 7000)["waitingFor"],
+        "blocked in the background"
+    );
+    // bg-7 has a bg id too, though its wait start was lost (sorts last).
+    let lost = &snap["needsYou"][3];
+    assert_eq!(lost["waitingFor"], "blocked in the background");
+}
+
+#[test]
+fn a_wait_with_neither_a_bg_id_nor_a_reason_keeps_no_reason() {
+    let (snap, _dir) = waits_fixture("no-reason");
+    // s-eps (since 6000): the registry gave it an empty id and no waitingFor.
+    assert_eq!(wait_since(&snap, 6000)["waitingFor"], Value::Null);
+    // A stated reason is untouched.
+    assert_eq!(wait_since(&snap, 8000)["waitingFor"], "permission");
+}
+
+#[test]
 fn a_wait_is_labelled_by_its_session_id_then_as_unknown() {
     let (snap, _dir) = waits_fixture("labels");
     // No role, no name and no tab name to go by: the raw session id.

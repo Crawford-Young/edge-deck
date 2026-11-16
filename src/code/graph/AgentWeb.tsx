@@ -12,7 +12,7 @@ import {
   type NodeProps,
   type NodeTypes,
 } from '@xyflow/react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { focusTerminal } from '../../api'
 import type { Island } from '../types'
 import { AgentNode, agentLabel, type AgentFlowNode } from './AgentNode'
@@ -38,8 +38,24 @@ export const VIEW_ANIMATION_MS = 300
 export const FIT_PADDING = 0.1
 /** Far enough out to frame a large run. */
 export const MIN_ZOOM = 0.1
+/** The Re-fit button's size in the canvas's top-right corner, screen px. */
+export const REFIT_PANEL_PX = 96
+/** React Flow's margin around a Panel (`.react-flow__panel`, @xyflow/react dist/base.css). */
+const PANEL_MARGIN_PX = 15
 
-type ClusterNodeData = { label: string; members: readonly string[] }
+/**
+ * Every fit keeps its content below the Re-fit corner. The islands run side by side, so the web
+ * is usually wider than the canvas and the vertical slack absorbs this reserve without zooming
+ * out; the other sides keep the share-of-view padding.
+ */
+const FIT_FRAME_PADDING = {
+  top: `${REFIT_PANEL_PX + PANEL_MARGIN_PX}px`,
+  right: FIT_PADDING,
+  bottom: FIT_PADDING,
+  left: FIT_PADDING,
+} as const
+
+type ClusterNodeData = { label: string }
 type ClusterFlowNode = Node<ClusterNodeData, 'cluster'>
 type WebNode = AgentFlowNode | ClusterFlowNode
 
@@ -95,7 +111,6 @@ const buildNodes = (
   const agents: AgentFlowNode[] = []
   islands.forEach((island, i) => {
     const counts = childCounts(island)
-    const members = island.agents.map((a) => nodeKey(island.sessionId, a.id))
     const label = clusterLabel(island)
     const id = clusterId(island.sessionId)
     const placed = layout?.[i]
@@ -113,7 +128,7 @@ const buildNodes = (
         ...box,
         id,
         type: 'cluster',
-        data: { label, members },
+        data: { label },
         draggable: false,
         selectable: false,
         focusable: false,
@@ -159,11 +174,18 @@ const buildEdges = (islands: readonly Island[]): Edge[] =>
       })
   })
 
+interface WholeFit {
+  nodes: { id: string }[]
+  padding: typeof FIT_FRAME_PADDING
+}
+
 interface WebState {
   islands: readonly Island[]
   key: string
   nodes: WebNode[]
   edges: Edge[]
+  /** Frames every cluster target; a new object exactly when the layout changed. */
+  fit: WholeFit
 }
 
 const lay = (islands: readonly Island[], current: readonly WebNode[]): WebState => {
@@ -172,11 +194,16 @@ const lay = (islands: readonly Island[], current: readonly WebNode[]): WebState 
     current.filter((n) => n.type === 'agent').map((n) => [n.id, n.position]),
   )
   const layout = layoutWeb(islands, { previous, dense })
+  const nodes = buildNodes(islands, dense, current, layout)
   return {
     islands,
     key: layoutKey(islands, dense),
-    nodes: buildNodes(islands, dense, current, layout),
+    nodes,
     edges: buildEdges(islands),
+    fit: {
+      nodes: nodes.filter((n) => n.type === 'cluster').map((n) => ({ id: n.id })),
+      padding: FIT_FRAME_PADDING,
+    },
   }
 }
 
@@ -184,6 +211,26 @@ function Web({ islands }: { islands: readonly Island[] }) {
   const { fitView, getZoom, setCenter } = useReactFlow()
   const [state, setState] = useState<WebState>(() => lay(islands, []))
   const [failed, setFailed] = useState(false)
+  // Auto-fit: on until the user moves the view, back on with Re-fit.
+  const autoFit = useRef(true)
+  const fitted = useRef(state.fit)
+
+  // A layout change re-frames the web unless the user has moved the view since the last fit.
+  // The mount fit is the `fitView` prop, so only later layouts land here.
+  useEffect(() => {
+    if (fitted.current === state.fit) return
+    fitted.current = state.fit
+    if (autoFit.current) void fitView({ ...state.fit, duration: VIEW_ANIMATION_MS })
+  }, [state.fit, fitView])
+
+  // React Flow hands d3-zoom's source event to onMove: the DOM event (pointer, wheel, touch)
+  // for a user gesture, null for fitView / setCenter (@xyflow/system dist/esm/index.mjs:2861-2870,
+  // forwarded at @xyflow/react dist/esm/index.mjs:1325-1329). onMoveStart is not used: d3-zoom
+  // starts a gesture on pointer down before anything moves (d3-zoom dist/d3-zoom.js:357), so a
+  // still tap on the pane would count; onMove only fires once the view moves (:366).
+  const onMove = (event: MouseEvent | TouchEvent | null) => {
+    if (event !== null) autoFit.current = false
+  }
 
   // A new snapshot: refresh node data; lay out again only when the shape changed.
   if (state.islands !== islands) {
@@ -198,13 +245,13 @@ function Web({ islands }: { islands: readonly Island[] }) {
   const onNodesChange = (changes: NodeChange<WebNode>[]) =>
     setState((s) => ({ ...s, nodes: applyNodeChanges(changes, s.nodes) }))
 
-  const agentIds = state.nodes.filter((n) => n.type === 'agent').map((n) => ({ id: n.id }))
-
   const onNodeClick: NodeMouseHandler<WebNode> = (_event, node) => {
     if (node.type === 'cluster') {
+      autoFit.current = false
+      // The cluster's own box holds its nodes' labels; its members' discs would cut them off.
       void fitView({
-        nodes: node.data.members.map((id) => ({ id })),
-        padding: FIT_PADDING,
+        nodes: [{ id: node.id }],
+        padding: FIT_FRAME_PADDING,
         duration: VIEW_ANIMATION_MS,
       })
       return
@@ -212,6 +259,7 @@ function Web({ islands }: { islands: readonly Island[] }) {
     const { agent, dense } = node.data
     const size = nodeSizePx(agent.depth, dense)
     if (!isTappable(size, getZoom())) {
+      autoFit.current = false
       void setCenter(node.position.x, node.position.y, {
         zoom: (MIN_TAP_PX / size) * TAP_ZOOM_MARGIN,
         duration: VIEW_ANIMATION_MS,
@@ -233,6 +281,10 @@ function Web({ islands }: { islands: readonly Island[] }) {
       nodeOrigin={NODE_ORIGIN}
       onNodesChange={onNodesChange}
       onNodeClick={onNodeClick}
+      onMove={onMove}
+      onNodeDragStart={() => {
+        autoFit.current = false
+      }}
       nodesConnectable={false}
       nodesFocusable={false}
       disableKeyboardA11y
@@ -245,7 +297,8 @@ function Web({ islands }: { islands: readonly Island[] }) {
       maxZoom={MAX_ZOOM}
       colorMode="dark"
       fitView
-      fitViewOptions={{ padding: FIT_PADDING }}
+      // Stable between layouts, so React Flow's prop sync never swaps out a queued auto-fit.
+      fitViewOptions={state.fit}
       proOptions={{ hideAttribution: true }}
       className="[--xy-background-color:transparent] [--xy-edge-stroke:theme(colors.muted.foreground/50%)]"
     >
@@ -254,9 +307,10 @@ function Web({ islands }: { islands: readonly Island[] }) {
           type="button"
           variant="outline"
           size="touch"
-          onClick={() =>
-            void fitView({ nodes: agentIds, padding: FIT_PADDING, duration: VIEW_ANIMATION_MS })
-          }
+          onClick={() => {
+            autoFit.current = true
+            void fitView({ ...state.fit, duration: VIEW_ANIMATION_MS })
+          }}
         >
           Re-fit
         </Button>
