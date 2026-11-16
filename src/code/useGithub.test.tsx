@@ -94,6 +94,33 @@ describe('useGithub', () => {
     expect(result.current).toEqual(withPr(3))
   })
 
+  it('still reads when the listener registration rejects, and the read lands', async () => {
+    vi.mocked(api.onGithubState).mockRejectedValue(new Error('no event bridge'))
+    vi.mocked(api.githubState).mockResolvedValue(withPr(7))
+    const { result } = await mount()
+    expect(vi.mocked(api.githubState)).toHaveBeenCalledTimes(1)
+    expect(result.current).toEqual(withPr(7))
+  })
+
+  it('surfaces an error state when registration and read both fail', async () => {
+    vi.mocked(api.onGithubState).mockRejectedValue(new Error('no event bridge'))
+    vi.mocked(api.githubState).mockRejectedValue(new Error('no backend'))
+    const { result } = await mount()
+    expect(vi.mocked(api.githubState)).toHaveBeenCalledTimes(1)
+    expect(result.current).toEqual({ status: 'error', prs: [], issues: [] })
+  })
+
+  it('ignores a registration failure after unmount', async () => {
+    let reject!: (e: unknown) => void
+    vi.mocked(api.onGithubState).mockImplementation(() => new Promise((_, r) => (reject = r)))
+    const { result, unmount } = renderHook(() => useGithub())
+    unmount()
+    reject(new Error('late'))
+    await act(async () => {})
+    expect(vi.mocked(api.githubState)).not.toHaveBeenCalled()
+    expect(result.current).toEqual(loading)
+  })
+
   it('unsubscribes on unmount', async () => {
     const { unmount } = await mount()
     unmount()

@@ -136,6 +136,24 @@ describe('AgentWeb surface', () => {
     expect(p.fitView).toBe(true)
   })
 
+  it('drops the flow keyboard hint and hides decorative edges from assistive tech', () => {
+    render(<AgentWeb islands={[island('a', 3)]} />)
+    expect(flowProps().disableKeyboardA11y).toBe(true)
+    const edges = flowProps().edges ?? []
+    expect(edges.length).toBeGreaterThan(0)
+    for (const e of edges) expect(e.domAttributes?.['aria-hidden']).toBe(true)
+  })
+
+  it('keeps every node a keyboard-reachable button with its accessible name', () => {
+    render(<AgentWeb islands={[island('a', 3)]} />)
+    for (const id of [1, 2, 3]) {
+      const button = nodeButton('a', id)
+      expect(button).toHaveAccessibleName(new RegExp(`role-a-${id}`))
+      expect(button.tabIndex).toBeGreaterThanOrEqual(0)
+      expect(button).not.toHaveAttribute('aria-hidden')
+    }
+  })
+
   it('sets no timers (no polling)', () => {
     vi.useFakeTimers()
     const first = [island('a', 3)]
@@ -197,7 +215,8 @@ describe('AgentWeb re-fit and clusters', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Re-fit' }))
     expect(fitView).toHaveBeenCalledTimes(1)
     const ids = fitIds(lastFit())
-    if (ids) expect(ids).toEqual(expect.arrayContaining([...keys(a), ...keys(b)]))
+    expect(ids).toBeDefined()
+    expect(ids).toEqual(expect.arrayContaining([...keys(a), ...keys(b)]))
   })
 
   it('each island has a "Zoom to cluster" target named for its root and charge', () => {

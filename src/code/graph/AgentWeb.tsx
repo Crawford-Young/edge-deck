@@ -120,8 +120,8 @@ const buildNodes = (
         zIndex: -1,
       } as ClusterFlowNode)
     }
-    island.agents.forEach((agent, j) => {
-      const key = members[j] as string
+    island.agents.forEach((agent) => {
+      const key = nodeKey(island.sessionId, agent.id)
       const kept = old.get(key)
       const position = placed?.positions.get(key) ?? (kept?.position as Point)
       agents.push({
@@ -153,6 +153,8 @@ const buildEdges = (islands: readonly Island[]): Edge[] =>
           focusable: false,
           selectable: false,
           deletable: false,
+          // Decorative: the web's meaning is in the nodes, not "Edge from a to b" images.
+          domAttributes: { 'aria-hidden': true },
         }
       })
   })
@@ -207,7 +209,7 @@ function Web({ islands }: { islands: readonly Island[] }) {
       })
       return
     }
-    const { agent, dense } = (node as AgentFlowNode).data
+    const { agent, dense } = node.data
     const size = nodeSizePx(agent.depth, dense)
     if (!isTappable(size, getZoom())) {
       void setCenter(node.position.x, node.position.y, {
@@ -233,6 +235,7 @@ function Web({ islands }: { islands: readonly Island[] }) {
       onNodeClick={onNodeClick}
       nodesConnectable={false}
       nodesFocusable={false}
+      disableKeyboardA11y
       edgesFocusable={false}
       edgesReconnectable={false}
       elementsSelectable={false}

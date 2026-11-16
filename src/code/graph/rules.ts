@@ -16,6 +16,10 @@ export const DENSE_ROOT_NODE_PX = 84
 export const DENSE_SHRINK_PER_DEPTH_PX = 12
 /** Dense look: no node is smaller than this, px. */
 export const DENSE_MIN_NODE_PX = 48
+/** Dense look: a label's font size in flow units, px. */
+export const LABEL_FONT_PX = 18
+/** Dense look: a label is never drawn smaller than this on screen, px. */
+export const MIN_LABEL_SCREEN_PX = 16
 
 export interface WebCounts {
   readonly total: number
@@ -37,6 +41,10 @@ export const childCounts = (island: Island): ReadonlyMap<number, number> => {
 }
 
 export const isTappable = (sizePx: number, zoom: number): boolean => sizePx * zoom >= MIN_TAP_PX
+
+/** Label scale at `zoom`: 1 when the label is legible, else exactly enough to reach the minimum. */
+export const labelScale = (zoom: number): number =>
+  zoom >= MIN_LABEL_SCREEN_PX / LABEL_FONT_PX ? 1 : MIN_LABEL_SCREEN_PX / (LABEL_FONT_PX * zoom)
 
 export const nodeSizePx = (depth: number, dense: boolean): number => {
   if (!dense) return depth === 0 ? ROOT_NODE_PX : DEFAULT_NODE_PX

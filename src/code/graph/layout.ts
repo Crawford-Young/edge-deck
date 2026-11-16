@@ -15,6 +15,10 @@ export const LINK_SLACK_PX = 48
 export const LINK_DISTANCE_PX = ROOT_NODE_PX / 2 + DEFAULT_NODE_PX / 2 + LINK_SLACK_PX
 /** Many-body repulsion strength (negative repels). */
 export const CHARGE_STRENGTH = -400
+/** Dense look: link length, px; shorter than the collide discs so links pull tight. */
+export const DENSE_LINK_DISTANCE_PX = 40
+/** Dense look: many-body repulsion strength; weak so a big web stays compact. */
+export const DENSE_CHARGE_STRENGTH = -60
 /** Collide force iterations per tick. */
 export const COLLIDE_ITERATIONS = 4
 /** Spiral spacing of the deterministic start positions, px. */
@@ -143,9 +147,12 @@ const settle = (
         'link',
         forceLink<SimNode, SimulationLinkDatum<SimNode>>(links)
           .id((n) => n.id)
-          .distance(LINK_DISTANCE_PX),
+          .distance(dense ? DENSE_LINK_DISTANCE_PX : LINK_DISTANCE_PX),
       )
-      .force('charge', forceManyBody<SimNode>().strength(CHARGE_STRENGTH))
+      .force(
+        'charge',
+        forceManyBody<SimNode>().strength(dense ? DENSE_CHARGE_STRENGTH : CHARGE_STRENGTH),
+      )
       .force(
         'collide',
         forceCollide<SimNode>((n) => n.radius + COLLIDE_GAP_PX / 2).iterations(COLLIDE_ITERATIONS),
@@ -159,40 +166,58 @@ const settle = (
   return { nodes, positions, survivors }
 }
 
-const shift = (positions: ReadonlyMap<string, Point>, dx: number): Map<string, Point> =>
-  new Map([...positions].map(([k, p]) => [k, { x: p.x + dx, y: p.y }]))
+/** A gap short of ISLAND_GAP_PX by no more than this is float noise, not overlap, px. */
+const PACK_TOLERANCE_PX = 1e-6
+
+/** Translate a whole island so its bounds start at `x`; inner offsets are unchanged. */
+const moveTo = (layout: IslandLayout, x: number): IslandLayout => {
+  const dx = x - layout.bounds.x
+  return {
+    sessionId: layout.sessionId,
+    positions: new Map([...layout.positions].map(([k, p]) => [k, { x: p.x + dx, y: p.y }])),
+    bounds: { ...layout.bounds, x },
+  }
+}
+
+const rightOf = (layout: IslandLayout): number => layout.bounds.x + layout.bounds.width
 
 export const layoutWeb = (
   islands: readonly Island[],
   options: LayoutOptions = {},
 ): IslandLayout[] => {
   const { previous, dense = false } = options
-  const settled = islands.map((island) => {
+  const entries = islands.map((island) => {
     const { nodes, positions, survivors } = settle(island, dense, previous)
     const layout: IslandLayout = {
       sessionId: island.sessionId,
       positions,
       bounds: boundsOf(nodes),
     }
-    return { layout, survivors }
+    // Where the island's survivors sit orders the walk below; growth can't reorder it.
+    const anchor = survivors > 0 ? boundsOf(nodes.filter((n) => n.fx !== undefined)).x : null
+    return { layout, anchor }
   })
 
-  // Islands with survivors keep their place; the rest go side by side to the
-  // right of everything placed so far.
+  // Islands with survivors keep their place unless a left neighbour grew into
+  // them: walking left to right, each is pushed right just enough to keep
+  // ISLAND_GAP_PX. Nothing is pulled left, so a shrink or an unchanged refetch
+  // moves nothing.
+  const kept = entries
+    .flatMap((entry) => (entry.anchor === null ? [] : [{ entry, anchor: entry.anchor }]))
+    .sort((a, b) => a.anchor - b.anchor)
   let cursor = 0
-  for (const { layout, survivors } of settled) {
-    if (survivors > 0)
-      cursor = Math.max(cursor, layout.bounds.x + layout.bounds.width + ISLAND_GAP_PX)
+  let minX = -Infinity
+  for (const { entry } of kept) {
+    if (entry.layout.bounds.x < minX - PACK_TOLERANCE_PX) entry.layout = moveTo(entry.layout, minX)
+    minX = rightOf(entry.layout) + ISLAND_GAP_PX
+    cursor = Math.max(cursor, minX)
   }
-  return settled.map((entry) => {
-    if (entry.survivors > 0) return entry.layout
-    const { sessionId, positions, bounds: natural } = entry.layout
-    const placed: IslandLayout = {
-      sessionId,
-      positions: shift(positions, cursor - natural.x),
-      bounds: { ...natural, x: cursor },
-    }
-    cursor += natural.width + ISLAND_GAP_PX
+
+  // All-new islands go side by side to the right of everything placed.
+  return entries.map((entry) => {
+    if (entry.anchor !== null) return entry.layout
+    const placed = moveTo(entry.layout, cursor)
+    cursor += placed.bounds.width + ISLAND_GAP_PX
     return placed
   })
 }
