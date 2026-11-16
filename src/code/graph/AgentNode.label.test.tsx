@@ -26,8 +26,8 @@ const root: GraphAgent = {
   focus: null,
 }
 
-const renderDense = (dense = true) => {
-  const data: AgentNodeData = { agent: root, dense, childCount: 0 }
+const renderDense = () => {
+  const data: AgentNodeData = { agent: root, dense: true, childCount: 0 }
   return render(<AgentNode {...({ id: 'k', data } as unknown as NodeProps<AgentFlowNode>)} />)
 }
 

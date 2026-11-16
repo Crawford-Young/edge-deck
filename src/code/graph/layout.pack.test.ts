@@ -84,6 +84,17 @@ describe('layoutWeb: island re-pack after growth', () => {
     for (const [k, p] of before.positions) expect(a.positions.get(k)).toEqual(p)
   })
 
+  it('re-packs by x order, not input order', () => {
+    const first = layoutWeb([tree('a', 3), tree('b', 3), tree('c', 3)])
+    const out = layoutWeb([tree('c', 3), tree('b', 20), tree('a', 3)], {
+      previous: lastPositions(first),
+    })
+    const [a, b, c] = [byId(out, 'a'), byId(out, 'b'), byId(out, 'c')]
+    expect(b.bounds.x - right(a)).toBeGreaterThanOrEqual(ISLAND_GAP_PX - EPS)
+    expect(c.bounds.x - right(b)).toBeGreaterThanOrEqual(ISLAND_GAP_PX - EPS)
+    expectBoundsClose(a.bounds, byId(first, 'a').bounds)
+  })
+
   it('an unchanged refetch moves no node and no bounds', () => {
     const islands = [tree('a', 6), tree('b', 4), tree('c', 5)]
     const first = layoutWeb(islands)

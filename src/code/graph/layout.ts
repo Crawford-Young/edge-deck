@@ -7,6 +7,13 @@ import { DEFAULT_NODE_PX, ROOT_NODE_PX, nodeKey, nodeSizePx } from './rules'
 export const SETTLE_TICKS = 300
 /** Minimum horizontal space between two islands' bounds, px. */
 export const ISLAND_GAP_PX = 160
+/**
+ * Normal look: how far a node's label block (role, charge, state, cost) hangs below its disc,
+ * flow px. Measured live: the ring button is about 230 x 223 around a 120 px root disc.
+ */
+export const LABEL_BELOW_PX = 103
+/** Normal look: how far a node's label block reaches past each side of its disc, flow px. */
+export const LABEL_SIDE_PX = 55
 /** Extra clearance around each node's disc in the collide force, px. */
 export const COLLIDE_GAP_PX = 24
 /** Extra link length beyond the two radii, px. */
@@ -48,6 +55,7 @@ export interface Bounds {
 export interface IslandLayout {
   readonly sessionId: string
   readonly positions: ReadonlyMap<string, Point>
+  /** What the island draws: every disc and, in the normal look, its label block. */
   readonly bounds: Bounds
 }
 
@@ -72,17 +80,20 @@ const seededRandom = (): (() => number) => {
   }
 }
 
-const boundsOf = (nodes: readonly SimNode[]): Bounds => {
+/** The dense look draws its own small labels inside the disc's footprint. */
+const boundsOf = (nodes: readonly SimNode[], dense: boolean): Bounds => {
   if (nodes.length === 0) return { x: 0, y: 0, width: 0, height: 0 }
+  const side = dense ? 0 : LABEL_SIDE_PX
+  const below = dense ? 0 : LABEL_BELOW_PX
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
   for (const n of nodes) {
-    minX = Math.min(minX, n.x - n.radius)
+    minX = Math.min(minX, n.x - n.radius - side)
     minY = Math.min(minY, n.y - n.radius)
-    maxX = Math.max(maxX, n.x + n.radius)
-    maxY = Math.max(maxY, n.y + n.radius)
+    maxX = Math.max(maxX, n.x + n.radius + side)
+    maxY = Math.max(maxY, n.y + n.radius + below)
   }
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
@@ -191,10 +202,16 @@ export const layoutWeb = (
     const layout: IslandLayout = {
       sessionId: island.sessionId,
       positions,
-      bounds: boundsOf(nodes),
+      bounds: boundsOf(nodes, dense),
     }
     // Where the island's survivors sit orders the walk below; growth can't reorder it.
-    const anchor = survivors > 0 ? boundsOf(nodes.filter((n) => n.fx !== undefined)).x : null
+    const anchor =
+      survivors > 0
+        ? boundsOf(
+            nodes.filter((n) => n.fx !== undefined),
+            dense,
+          ).x
+        : null
     return { layout, anchor }
   })
 

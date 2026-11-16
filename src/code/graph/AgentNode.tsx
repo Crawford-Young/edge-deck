@@ -26,9 +26,10 @@ const HANDLE_STYLE = { top: '50%' }
  */
 export function AgentNode({ data }: NodeProps<AgentFlowNode>) {
   const { agent, dense, childCount } = data
-  // Only the dense look scales labels; selecting the scale (not the zoom) re-renders
-  // a node only when its scale changes.
-  const scale = useStore((s) => (dense ? labelScale(s.transform[2]) : 1))
+  // Only a labelled dense node scales its label; selecting the scale (not the zoom)
+  // re-renders a node only when its scale changes.
+  const labelled = dense && isLabelled(agent, childCount, dense)
+  const scale = useStore((s) => (labelled ? labelScale(s.transform[2]) : 1))
   const size = nodeSizePx(agent.depth, dense)
   const name = agentLabel(agent)
   const ring = {
@@ -52,7 +53,7 @@ export function AgentNode({ data }: NodeProps<AgentFlowNode>) {
       ) : (
         <AgentNodeRing {...ring} size={agent.depth === 0 ? 'root' : 'default'} />
       )}
-      {dense && isLabelled(agent, childCount, dense) && (
+      {labelled && (
         <span
           aria-hidden="true"
           className="absolute top-full mt-1 flex flex-col items-center font-semibold whitespace-nowrap text-foreground"
