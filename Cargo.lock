@@ -3257,7 +3257,7 @@ checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
 [[package]]
 name = "strate-core"
 version = "0.1.0"
-source = "git+https://github.com/Crawford-Young/strate?rev=aa782c4#aa782c49c334c1861a0e98bb0126b73073e779c5"
+source = "git+https://github.com/Crawford-Young/strate?rev=00569e9#00569e90083c4296a66c0bd15d7980d93ef205bd"
 dependencies = [
  "crossbeam-channel",
  "file-id",

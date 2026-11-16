@@ -190,8 +190,9 @@ pub fn snapshot(conn: &Connection, now_ms: i64) -> strate_core::store::Result<Sn
     })
 }
 
-/// Each drawn session's terminal: its tab's pid, titled by its
-/// orchestrator's name, else the tab's name.
+/// Each drawn session's terminal: its tab's pid and kind (a background
+/// session by its bg id), titled by its orchestrator's name, else the
+/// tab's name.
 fn focus_by_session(tabs: &[Workstream], graphs: &[LiveGraph]) -> HashMap<String, Focus> {
     // A session outside every live graph (a parked background job) has no
     // graph agent, so it falls back to the tab's name.
@@ -205,13 +206,21 @@ fn focus_by_session(tabs: &[Workstream], graphs: &[LiveGraph]) -> HashMap<String
         .filter_map(|tab| {
             let session = tab.session_id.as_deref()?;
             let pid = tab.pid.and_then(|p| u32::try_from(p).ok());
+            // The registry's kind decides; with none, a pid means interactive.
+            let background = tab
+                .kind
+                .as_deref()
+                .map_or(pid.is_none(), |kind| kind == "background");
+            // `claude attach` takes a background job's short id, not its
+            // session id.
+            let attach = tab.bg_id.as_deref().filter(|_| background);
             let focus = Focus {
                 pid: pid.unwrap_or(0),
-                session_id: session.to_owned(),
-                kind: if pid.is_some() {
-                    SessionKind::Interactive
-                } else {
+                session_id: attach.unwrap_or(session).to_owned(),
+                kind: if background {
                     SessionKind::Background
+                } else {
+                    SessionKind::Interactive
                 },
                 title: names.get(session).unwrap_or(&tab.name).clone(),
             };
