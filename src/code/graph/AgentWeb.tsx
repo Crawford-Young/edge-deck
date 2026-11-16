@@ -42,6 +42,8 @@ export const MIN_ZOOM = 0.1
 export const REFIT_PANEL_PX = 96
 /** React Flow's margin around a Panel (`.react-flow__panel`, @xyflow/react dist/base.css). */
 const PANEL_MARGIN_PX = 15
+/** Clear space between the framed content and the Re-fit button's bottom edge, screen px. */
+const REFIT_GAP_PX = 16
 
 /**
  * Every fit keeps its content below the Re-fit corner. The islands run side by side, so the web
@@ -49,13 +51,13 @@ const PANEL_MARGIN_PX = 15
  * out; the other sides keep the share-of-view padding.
  */
 const FIT_FRAME_PADDING = {
-  top: `${REFIT_PANEL_PX + PANEL_MARGIN_PX}px`,
+  top: `${REFIT_PANEL_PX + PANEL_MARGIN_PX + REFIT_GAP_PX}px`,
   right: FIT_PADDING,
   bottom: FIT_PADDING,
   left: FIT_PADDING,
 } as const
 
-type ClusterNodeData = { label: string }
+type ClusterNodeData = Readonly<{ label: string }>
 type ClusterFlowNode = Node<ClusterNodeData, 'cluster'>
 type WebNode = AgentFlowNode | ClusterFlowNode
 
@@ -175,17 +177,17 @@ const buildEdges = (islands: readonly Island[]): Edge[] =>
   })
 
 interface WholeFit {
-  nodes: { id: string }[]
-  padding: typeof FIT_FRAME_PADDING
+  readonly nodes: { id: string }[]
+  readonly padding: typeof FIT_FRAME_PADDING
 }
 
 interface WebState {
-  islands: readonly Island[]
-  key: string
-  nodes: WebNode[]
-  edges: Edge[]
+  readonly islands: readonly Island[]
+  readonly key: string
+  readonly nodes: WebNode[]
+  readonly edges: Edge[]
   /** Frames every cluster target; a new object exactly when the layout changed. */
-  fit: WholeFit
+  readonly fit: WholeFit
 }
 
 const lay = (islands: readonly Island[], current: readonly WebNode[]): WebState => {

@@ -28,6 +28,8 @@ export const DENSE_LINK_DISTANCE_PX = 40
 export const DENSE_CHARGE_STRENGTH = -60
 /** Collide force iterations per tick. */
 export const COLLIDE_ITERATIONS = 4
+/** Footprint force passes per tick. */
+export const FOOTPRINT_ITERATIONS = 2
 /** Spiral spacing of the deterministic start positions, px. */
 export const SPIRAL_STEP_PX = 60
 /** Golden angle, radians; spreads start positions evenly. */
@@ -80,7 +82,10 @@ const seededRandom = (): (() => number) => {
   }
 }
 
-/** The dense look draws its own small labels inside the disc's footprint. */
+/**
+ * Dense bounds deliberately leave the label out: the dense look hangs its (small, scaled-up when
+ * zoomed out) labels below the disc, and that spill is tracked in #14.
+ */
 const boundsOf = (nodes: readonly SimNode[], dense: boolean): Bounds => {
   if (nodes.length === 0) return { x: 0, y: 0, width: 0, height: 0 }
   const side = dense ? 0 : LABEL_SIDE_PX
@@ -96,6 +101,44 @@ const boundsOf = (nodes: readonly SimNode[], dense: boolean): Bounds => {
     maxY = Math.max(maxY, n.y + n.radius + below)
   }
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+}
+
+/**
+ * Normal look: a force that keeps every pair of nodes' footprints (disc plus label block, padded
+ * by half COLLIDE_GAP_PX) from intersecting. It pushes along the axis of smaller overlap, and a
+ * pinned node never moves.
+ */
+const footprintForce = (nodes: readonly SimNode[]): (() => void) => {
+  const pad = COLLIDE_GAP_PX / 2
+  const halfW = (n: SimNode) => n.radius + LABEL_SIDE_PX + pad
+  const halfH = (n: SimNode) => n.radius + LABEL_BELOW_PX / 2 + pad
+  const centreY = (n: SimNode) => n.y + LABEL_BELOW_PX / 2
+  return () => {
+    for (let i = 0; i < FOOTPRINT_ITERATIONS; i++) {
+      nodes.forEach((a, ai) => {
+        for (const b of nodes.slice(ai + 1)) {
+          const dx = b.x - a.x
+          const dy = centreY(b) - centreY(a)
+          const ox = halfW(a) + halfW(b) - Math.abs(dx)
+          const oy = halfH(a) + halfH(b) - Math.abs(dy)
+          if (ox <= 0 || oy <= 0) continue
+          const wa = a.fx === undefined ? 1 : 0
+          const wb = b.fx === undefined ? 1 : 0
+          if (wa + wb === 0) continue
+          const alongX = ox < oy
+          const shift = (alongX ? ox : oy) / (wa + wb)
+          const sign = (alongX ? dx : dy) >= 0 ? 1 : -1
+          if (alongX) {
+            a.x -= sign * shift * wa
+            b.x += sign * shift * wb
+          } else {
+            a.y -= sign * shift * wa
+            b.y += sign * shift * wb
+          }
+        }
+      })
+    }
+  }
 }
 
 /** Settle one island; survivors in `previous` are pinned at their old point. */
@@ -152,7 +195,8 @@ const settle = (
     const links: SimulationLinkDatum<SimNode>[] = island.edges
       .filter((e) => byId.has(e.parent) && byId.has(e.child))
       .map((e) => ({ source: e.parent, target: e.child }))
-    forceSimulation<SimNode>(nodes)
+    const simulation = forceSimulation<SimNode>(nodes)
+    simulation
       .randomSource(seededRandom())
       .force(
         'link',
@@ -169,7 +213,8 @@ const settle = (
         forceCollide<SimNode>((n) => n.radius + COLLIDE_GAP_PX / 2).iterations(COLLIDE_ITERATIONS),
       )
       .stop()
-      .tick(SETTLE_TICKS)
+    if (!dense) simulation.force('footprint', footprintForce(nodes))
+    simulation.tick(SETTLE_TICKS)
   }
 
   const positions = new Map<string, Point>()
