@@ -241,6 +241,14 @@ describe('AgentWeb framing', () => {
     expect(REFIT_PANEL_PX).toBe(96)
   })
 
+  it('pads the top by the Re-fit button, the panel margin and a 16px gap', () => {
+    // 96 button + 15 React Flow panel margin + 16 breathing room, written out.
+    render(<AgentWeb islands={[island('a', 3)]} />)
+    expect((flowProps().fitViewOptions as FitOptions).padding).toMatchObject({ top: '127px' })
+    fireEvent.click(screen.getByRole('button', { name: 'Re-fit' }))
+    expect((fitCalls().at(-1) as FitOptions).padding).toMatchObject({ top: '127px' })
+  })
+
   it('a cluster target contains every node disc, its label footprint and the pad', () => {
     render(<AgentWeb islands={[island('a', 4), island('b', 2)]} />)
     const nodes = flowProps().nodes ?? []

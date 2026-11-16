@@ -21,9 +21,11 @@ export function Panel({ title, count, children, scroll = true }: PanelProps) {
         {count}
       </div>
       <div
+        // A scroller must take focus so a keyboard can scroll it (axe scrollable-region-focusable).
+        {...(scroll && { tabIndex: 0, role: 'group', 'aria-labelledby': titleId })}
         className={
           scroll
-            ? 'relative min-h-0 flex-1 touch-pan-y overflow-y-auto'
+            ? 'relative min-h-0 flex-1 touch-pan-y overflow-y-auto rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
             : 'relative min-h-0 flex-1 overflow-hidden'
         }
       >
