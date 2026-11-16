@@ -50,6 +50,9 @@ pub(crate) trait Desktop {
     fn select_tab(&self, hwnd: isize, tab: usize) -> Result<(), String>;
     fn raise_windows(&self, hwnds: &[isize]) -> Result<(), String>;
     fn spawn(&self, program: &str, args: &[String]) -> Result<(), String>;
+    /// The claude executable to run: its full path when installed natively,
+    /// else `claude` for a PATH lookup.
+    fn claude_program(&self) -> String;
 }
 
 /// Validate the id, read the desktop, plan, and act on the plan.
@@ -70,7 +73,7 @@ pub(crate) fn run(
         FocusPlan::SelectTab { hwnd, tab } => desktop.select_tab(hwnd, tab),
         FocusPlan::RaiseWindows { hwnds } => desktop.raise_windows(&hwnds),
         FocusPlan::OpenAttach { session_id } => {
-            let (program, args) = attach_command(&session_id);
+            let (program, args) = attach_command(&desktop.claude_program(), &session_id);
             desktop.spawn(program, &args)
         }
         FocusPlan::NotFound => Err(NOT_FOUND.to_string()),
@@ -131,6 +134,9 @@ mod tests {
         fn spawn(&self, program: &str, args: &[String]) -> Result<(), String> {
             self.log(format!("spawn {program} {}", args.join(" ")));
             Ok(())
+        }
+        fn claude_program(&self) -> String {
+            r"C:\Users\someone\.local\bin\claude.exe".to_string()
         }
     }
 
@@ -196,7 +202,10 @@ mod tests {
         assert_eq!(result, Ok(()));
         assert_eq!(
             fake.calls(),
-            ["processes", "spawn wt.exe -w new claude attach bg_7"]
+            [
+                "processes",
+                r"spawn wt.exe -w new C:\Users\someone\.local\bin\claude.exe attach bg_7"
+            ]
         );
     }
 
