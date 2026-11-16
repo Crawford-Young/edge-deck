@@ -155,6 +155,35 @@ describe('useCodeSnapshot', () => {
     expect(result.current.error).toBeNull()
   })
 
+  it('still reads, and surfaces an error, when the listener registration rejects', async () => {
+    vi.mocked(api.onCodeChanged).mockRejectedValue(new Error('no event bridge'))
+    vi.mocked(api.codeSnapshot).mockResolvedValue(snap(7))
+    const { result } = await mount()
+    expect(api.codeSnapshot).toHaveBeenCalledTimes(1)
+    expect(result.current.snapshot).toEqual(snap(7))
+    expect(result.current.error).toContain('no event bridge')
+  })
+
+  it('surfaces a non-Error registration rejection as text, even when the read fails too', async () => {
+    vi.mocked(api.onCodeChanged).mockRejectedValue('bridge down')
+    vi.mocked(api.codeSnapshot).mockRejectedValue('store down')
+    const { result } = await mount()
+    expect(api.codeSnapshot).toHaveBeenCalledTimes(1)
+    expect(result.current.snapshot).toBeNull()
+    expect(result.current.error).not.toBeNull()
+  })
+
+  it('ignores a registration failure after unmount', async () => {
+    let reject!: (e: unknown) => void
+    vi.mocked(api.onCodeChanged).mockImplementation(() => new Promise((_, r) => (reject = r)))
+    const { result, unmount } = renderHook(() => useCodeSnapshot())
+    unmount()
+    reject(new Error('late'))
+    await act(async () => {})
+    expect(api.codeSnapshot).not.toHaveBeenCalled()
+    expect(result.current.error).toBeNull()
+  })
+
   it('unsubscribes on unmount', async () => {
     const { unmount } = await mount()
     unmount()

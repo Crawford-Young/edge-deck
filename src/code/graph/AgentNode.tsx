@@ -1,7 +1,7 @@
 import { AgentNodeRing, type AgentNodeState } from '@crawfordyoung/ui'
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react'
+import { Handle, Position, useStore, type Node, type NodeProps } from '@xyflow/react'
 import type { AgentState, GraphAgent } from '../types'
-import { isLabelled, nodeSizePx } from './rules'
+import { LABEL_FONT_PX, isLabelled, labelScale, nodeSizePx } from './rules'
 
 export type AgentNodeData = { agent: GraphAgent; dense: boolean; childCount: number }
 
@@ -26,6 +26,9 @@ const HANDLE_STYLE = { top: '50%' }
  */
 export function AgentNode({ data }: NodeProps<AgentFlowNode>) {
   const { agent, dense, childCount } = data
+  // Only the dense look scales labels; selecting the scale (not the zoom) re-renders
+  // a node only when its scale changes.
+  const scale = useStore((s) => (dense ? labelScale(s.transform[2]) : 1))
   const size = nodeSizePx(agent.depth, dense)
   const name = agentLabel(agent)
   const ring = {
@@ -52,7 +55,12 @@ export function AgentNode({ data }: NodeProps<AgentFlowNode>) {
       {dense && isLabelled(agent, childCount, dense) && (
         <span
           aria-hidden="true"
-          className="absolute top-full mt-1 flex flex-col items-center text-[18px] font-semibold whitespace-nowrap text-foreground"
+          className="absolute top-full mt-1 flex flex-col items-center font-semibold whitespace-nowrap text-foreground"
+          style={{
+            fontSize: LABEL_FONT_PX,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top center',
+          }}
         >
           <span>{name}</span>
           {agent.state === 'needs_you' && <span className="text-warning">needs you</span>}

@@ -18,16 +18,23 @@ export function useGithub(): GithubState {
     void onGithubState((s) => {
       seen = true
       apply(s)
-    }).then((fn) => {
-      if (!active) return fn()
-      unlisten = fn
-      githubState().then(
-        (s) => {
-          if (!seen) apply(s)
-        },
-        () => {},
-      )
-    })
+    }).then(
+      (fn) => {
+        if (!active) return fn()
+        unlisten = fn
+        githubState().then(
+          (s) => {
+            if (!seen) apply(s)
+          },
+          () => {},
+        )
+      },
+      () => {
+        if (!active) return
+        // No live events: still read once, and say so when that fails too.
+        githubState().then(apply, () => apply({ status: 'error', prs: [], issues: [] }))
+      },
+    )
     return () => {
       active = false
       unlisten?.()

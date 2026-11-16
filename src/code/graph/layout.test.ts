@@ -193,13 +193,17 @@ describe('layoutWeb: previous positions', () => {
   const fresh = layoutWeb(islands)
 
   it('keeps every node whose key is in previous at exactly that point', () => {
+    // Islands pinned far enough apart that no re-pack shift is needed: s-2's pin sits a
+    // full ISLAND_GAP_PX plus both islands' widths (twice over, for slack) right of s-1's.
+    const x1 = 500
+    const x2 = x1 + 2 * (at(fresh, 0).bounds.width + at(fresh, 1).bounds.width + ISLAND_GAP_PX)
     const previous = new Map<string, Point>([
-      [nodeKey('s-1', 1), { x: 500, y: -300 }],
-      [nodeKey('s-2', 3), { x: -40, y: 12.5 }],
+      [nodeKey('s-1', 1), { x: x1, y: -300 }],
+      [nodeKey('s-2', 3), { x: x2, y: 12.5 }],
     ])
     const out = layoutWeb(islands, { previous })
-    expect(pos(at(out, 0), 's-1', 1)).toEqual({ x: 500, y: -300 })
-    expect(pos(at(out, 1), 's-2', 3)).toEqual({ x: -40, y: 12.5 })
+    expect(pos(at(out, 0), 's-1', 1)).toEqual({ x: x1, y: -300 })
+    expect(pos(at(out, 1), 's-2', 3)).toEqual({ x: x2, y: 12.5 })
   })
 
   it('gives new nodes in an island with survivors finite positions', () => {
