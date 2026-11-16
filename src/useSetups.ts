@@ -36,14 +36,21 @@ export function useSetups(): { selected: Setup; select: (setup: Setup) => void }
     const apply = (streaming: boolean) => {
       if (active) dispatch({ type: 'obs', streaming })
     }
-    void onObsState((s) => apply(s.streaming)).then((fn) => {
-      if (active) unlisten = fn
-      else fn()
+    // Subscribe first, then read; a read that lands after an event is stale and dropped.
+    let seen = false
+    void onObsState((s) => {
+      seen = true
+      apply(s.streaming)
+    }).then((fn) => {
+      if (!active) return fn()
+      unlisten = fn
+      obsState().then(
+        (s) => {
+          if (!seen) apply(s.streaming)
+        },
+        () => {},
+      )
     })
-    obsState().then(
-      (s) => apply(s.streaming),
-      () => {},
-    )
     return () => {
       active = false
       unlisten?.()

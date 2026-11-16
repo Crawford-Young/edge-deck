@@ -28,6 +28,7 @@ describe('Clock', () => {
     [11, 59, '11:59', 'AM'],
     [12, 0, '12:00', 'PM'],
     [22, 49, '10:49', 'PM'],
+    [23, 59, '11:59', 'PM'],
   ])('shows %i:%i as %s %s', (h, m, clock, period) => {
     vi.setSystemTime(at(h, m))
     render(<Clock />)

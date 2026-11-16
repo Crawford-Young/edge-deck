@@ -19,6 +19,7 @@ export function Rail({
         type="single"
         orientation="vertical"
         size="touch"
+        aria-label="Setup"
         value={selected}
         onValueChange={(value) => {
           // Radix emits '' when the pressed item is tapped again: one setup stays selected.
