@@ -130,10 +130,32 @@ describe('useSetups', () => {
   it('ignores a late obsState result after unmount', async () => {
     let resolve!: (s: ObsState) => void
     vi.mocked(api.obsState).mockImplementation(() => new Promise((r) => (resolve = r)))
-    const { unmount } = renderHook(() => useSetups())
+    const { result, unmount } = await mount()
     unmount()
     resolve(ev(true))
     await act(async () => {})
     expect(unlisten).toHaveBeenCalledTimes(1)
+    expect(result.current.selected).toBe('code')
+  })
+
+  it('reads the state only after the subscription is in place', async () => {
+    let subscribed!: (fn: () => void) => void
+    vi.mocked(api.onObsState).mockImplementation(() => new Promise((r) => (subscribed = r)))
+    renderHook(() => useSetups())
+    await act(async () => {})
+    expect(vi.mocked(api.obsState)).not.toHaveBeenCalled()
+    subscribed(unlisten as never)
+    await act(async () => {})
+    expect(vi.mocked(api.obsState)).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops a stale read that lands after a newer event', async () => {
+    let resolve!: (s: ObsState) => void
+    vi.mocked(api.obsState).mockImplementation(() => new Promise((r) => (resolve = r)))
+    const { result } = await mount()
+    act(() => cb(ev(true)))
+    resolve(ev(false))
+    await act(async () => {})
+    expect(result.current.selected).toBe('stream')
   })
 })
