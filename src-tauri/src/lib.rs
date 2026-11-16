@@ -1,7 +1,9 @@
+mod obs;
 mod placement;
 
+use obs::{ObsState, Timing, Watcher};
 use placement::{MonitorInfo, Placement, choose_placement};
-use tauri::{Manager, PhysicalPosition, PhysicalSize};
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 fn describe(monitor: &tauri::Monitor, primary: Option<&tauri::Monitor>) -> MonitorInfo {
     MonitorInfo {
@@ -51,10 +53,40 @@ fn place_main_window(app: &tauri::App) -> tauri::Result<()> {
     window.show()
 }
 
+/// Current OBS state, for a webview that mounts after the last `obs-state` event.
+#[tauri::command]
+fn obs_state(watcher: tauri::State<'_, Watcher>) -> ObsState {
+    watcher.current()
+}
+
+/// Start the OBS watcher; it re-reads OBS's own config file on every attempt.
+fn start_obs_watcher(app: &tauri::App) {
+    let handle = app.handle().clone();
+    let watcher = Watcher::spawn(
+        || obs::default_config_path().and_then(|path| obs::read_config(&path)),
+        move |state| {
+            let _ = handle.emit("obs-state", state);
+        },
+        Timing::default(),
+    );
+    app.manage(watcher);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .setup(|app| Ok(place_main_window(app)?))
-        .run(tauri::generate_context!())
-        .expect("error while running edge-deck");
+        .invoke_handler(tauri::generate_handler![obs_state])
+        .setup(|app| {
+            start_obs_watcher(app);
+            Ok(place_main_window(app)?)
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building edge-deck")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event
+                && let Some(watcher) = app.try_state::<Watcher>()
+            {
+                watcher.stop();
+            }
+        });
 }
