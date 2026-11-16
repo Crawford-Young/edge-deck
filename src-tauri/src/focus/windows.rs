@@ -23,8 +23,10 @@ use ::windows::Win32::UI::WindowsAndMessaging::{
 };
 use ::windows::core::BOOL;
 
+use strate_core::registry::resolve_claude;
+
 use super::Desktop;
-use super::plan::{ProcInfo, WindowInfo};
+use super::plan::{ProcInfo, WindowInfo, claude_program};
 
 fn fail(what: &'static str) -> impl Fn(::windows::core::Error) -> String {
     move |e| format!("{what}: {e}")
@@ -219,6 +221,11 @@ impl Desktop for Win32Desktop {
             .iter()
             .rev()
             .try_for_each(|&hwnd| raise(to_hwnd(hwnd)))
+    }
+
+    fn claude_program(&self) -> String {
+        let home = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from);
+        claude_program(resolve_claude(None, std::env::var_os("PATH"), home))
     }
 
     fn spawn(&self, program: &str, args: &[String]) -> Result<(), String> {

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -117,10 +118,22 @@ pub fn validate_session_id(id: &str) -> Result<&str, InvalidSessionId> {
     }
 }
 
+/// The program that runs claude in the attach terminal: the resolved binary
+/// (the same lookup the registry poll uses) by full path, since the native
+/// install is not on PATH. Falls back to a PATH lookup of `claude` when
+/// nothing resolved, or when the path is not UTF-8 or holds `;` (Windows
+/// Terminal splits its command line on it).
+pub fn claude_program(resolved: Option<PathBuf>) -> String {
+    resolved
+        .and_then(|path| path.into_os_string().into_string().ok())
+        .filter(|path| !path.contains(';'))
+        .unwrap_or_else(|| "claude".to_string())
+}
+
 /// The program and argument vector that open a new terminal window attached
 /// to a background session. Pass only an id that `validate_session_id` accepted.
-pub fn attach_command(session_id: &str) -> (&'static str, Vec<String>) {
-    let args = ["-w", "new", "claude", "attach", session_id];
+pub fn attach_command(claude: &str, session_id: &str) -> (&'static str, Vec<String>) {
+    let args = ["-w", "new", claude, "attach", session_id];
     ("wt.exe", args.iter().map(|a| a.to_string()).collect())
 }
 
@@ -570,8 +583,46 @@ mod tests {
 
     #[test]
     fn attach_command_is_an_argument_vector_for_wt() {
-        let (program, args) = attach_command("sess-1_x");
+        let (program, args) = attach_command("claude", "sess-1_x");
         assert_eq!(program, "wt.exe");
         assert_eq!(args, vec!["-w", "new", "claude", "attach", "sess-1_x"]);
+    }
+
+    #[test]
+    fn attach_command_names_the_given_claude_program() {
+        let full = r"C:\Users\someone\.local\bin\claude.exe";
+        let (_, args) = attach_command(full, "s1");
+        assert_eq!(args, vec!["-w", "new", full, "attach", "s1"]);
+    }
+
+    // ---- claude_program ----
+
+    #[test]
+    fn claude_program_is_the_resolved_full_path() {
+        let found = PathBuf::from(r"C:\Users\someone\.local\bin\claude.exe");
+        assert_eq!(
+            claude_program(Some(found)),
+            r"C:\Users\someone\.local\bin\claude.exe"
+        );
+    }
+
+    #[test]
+    fn claude_program_falls_back_to_path_lookup_when_nothing_resolves() {
+        assert_eq!(claude_program(None), "claude");
+    }
+
+    #[test]
+    fn claude_program_falls_back_when_the_path_has_a_semicolon() {
+        let found = PathBuf::from(r"C:\Users\some;one\.local\bin\claude.exe");
+        assert_eq!(claude_program(Some(found)), "claude");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn claude_program_falls_back_when_the_path_is_not_utf8() {
+        use std::os::windows::ffi::OsStringExt;
+        let wide: Vec<u16> = vec![u16::from(b'C'), 0xD800, u16::from(b'x')];
+        let found = PathBuf::from(std::ffi::OsString::from_wide(&wide));
+        assert_eq!(claude_program(Some(found)), "claude");
     }
 }
