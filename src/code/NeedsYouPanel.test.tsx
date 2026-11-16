@@ -112,6 +112,13 @@ describe('NeedsYouPanel', () => {
       expect(button.className).toMatch(/\bmin-h-24\b|\bh-24\b|\bmin-h-\[(9[6-9]|[1-9]\d{2,})px\]/)
     })
 
+    it('gives the focus row button a visible keyboard focus ring from library tokens', () => {
+      render(<NeedsYouPanel waits={[wait('Planner', 10)]} />)
+      const button = screen.getByRole('button', { name: /Planner/ })
+      expect(button).toHaveClass('focus-visible:ring-2', 'focus-visible:ring-ring')
+      expect(button.className).toMatch(/\bfocus-visible:outline-none\b|\boutline-none\b/)
+    })
+
     it('calls focusTerminal with the row focus when tapped', () => {
       const f = focus('s-1')
       render(<NeedsYouPanel waits={[wait('Planner', 10, 'approve', f)]} />)

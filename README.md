@@ -2,7 +2,7 @@
 
 A fullscreen touch app for a 2560x720 display. Built with Tauri v2, React, Vite and Tailwind, styled entirely with `@crawfordyoung/ui`.
 
-Status: the window places itself on the 2560x720 display, the setup rail switches between Stream and Code, and the app follows OBS stream state. The Code setup shows its layout (header, "Needs you", "Agents", "GitHub"); the GitHub panel lists live PRs and issues through `gh`, the other panels show empty states with no live data yet; the Stream setup is a placeholder.
+Status: the window places itself on the 2560x720 display, the setup rail switches between Stream and Code, and the app follows OBS stream state. The Code setup shows live data: the header, "Needs you" and the "Agents" web come from the in-process agents engine, and the GitHub panel lists PRs and issues through `gh`; the Stream setup is a placeholder.
 
 ## Setup rail
 
@@ -10,7 +10,18 @@ A 112px rail at the left edge lists the setups (Stream, Code) as 96px touch targ
 
 ## Code setup
 
-`src/code/CodeSetup.tsx` lays out a 56px header (running time, session and daily cost, agent count, an "N need you" chip) above three panels: "Needs you" (580px, longest wait first, ages tick each second), "Agents" (fills the rest) and "GitHub" (640px). It is laid out to fit the 2448x720 main area; each panel body scrolls inside itself. `Panel` is the reusable labelled frame, and `useNow` is the one-second clock hook (each component that shows a ticking time calls it). A visually hidden "Code" `<h1>` names the page. Apart from the GitHub panel, which reads its own data (below), it is presentational: data arrives through props (`header`, `waits`, `agentCount`, `agents`), and for now `App` passes empty values.
+`src/code/CodeSetup.tsx` lays out a 56px header (running time, session and daily cost, agent count, an "N need you" chip) above three panels: "Needs you" (580px, longest wait first, ages tick each second), "Agents" (fills the rest) and "GitHub" (640px). It is laid out to fit the 2448x720 main area; each panel body scrolls inside itself. `Panel` is the reusable labelled frame, and `useNow` is the one-second clock hook (each component that shows a ticking time calls it). A visually hidden "Code" `<h1>` names the page. Apart from the GitHub panel, which reads its own data (below), it is presentational: `App` passes it the `code_snapshot` document from `useCodeSnapshot` (`src/code/useCodeSnapshot.ts`), which subscribes to `code-changed` first and then reads, drops a read that a newer one has overtaken, and uses no timer. A failed read shows its message and keeps the last snapshot.
+
+Each "Needs you" row that has a focus target is a 96px-tall button that calls `focusTerminal`; its keyboard focus ring uses library tokens. Shared types (`FocusTarget`, `SessionKind`, the snapshot shapes) live in `src/code/types.ts`; `src/api.ts` re-exports them.
+
+## Agent web
+
+The "Agents" panel (`src/code/AgentsPanel.tsx`) draws `src/code/graph/AgentWeb.tsx`: a React Flow canvas (`@xyflow/react`) of one island per live root session, each laid out by a deterministic d3-force simulation (`src/code/graph/layout.ts`, `d3-force`) and placed side by side with a gap between islands. Each node is the library's `AgentNodeRing` (`@crawfordyoung/ui` 0.34). A layout runs again only when membership, depth or edges change, so a state or cost update does not move nodes; a surviving node keeps its place and a new one starts next to its parent.
+
+- Dense look: when the total agent count across islands is more than `DENSE_NODE_COUNT` (24), nodes shrink with depth (84px at the root, 12px less per step, never under 48px), only the root, hubs (an agent with at least 3 children) and agents that need you keep their label, and the panel count reads "N total · N working · N finished · N deep" instead of the live count.
+- Touch rule: a node must be at least 96px on screen to be tapped. A tap on a smaller node centres and zooms to just past that size instead of acting; a tap on a tappable node calls `focusTerminal` with its focus target (nothing if it has none), and a failure shows "Could not bring that terminal forward".
+- Each island sits on a cluster target; tapping it zooms to fit that island. The "Re-fit" button (library `touch` size) fits all agents.
+- The rules (counts, sizes, tappable, hubs) are pure functions in `src/code/graph/rules.ts`.
 
 ## GitHub panel
 
@@ -24,7 +35,7 @@ A background thread (`src-tauri/src/github/`) runs the GitHub CLI, so `gh` must 
 - "signed-out": `gh` exits with code 4 or asks for `gh auth login` ("Not signed in to GitHub. Run gh auth login.").
 - "error": anything else, such as no network or an unreadable response ("Couldn't reach GitHub. Retrying.").
 
-Every failure is retried on the next tick, so installing `gh`, signing in or getting the network back recovers without a restart. The app looks for `gh` on the `PATH` it started with, so a fresh install in the default location (winget/MSI) is found without a restart through that fallback; `gh` installed elsewhere is found after an app restart. The thread stops when the app exits, which can wait up to the 20-second timeout for a `gh` run in flight.
+Every failure is retried on the next tick, so signing in or getting the network back recovers without a restart. Installing `gh` recovers without a restart only for the default install location (`%ProgramFiles%\GitHub CLI`): the app looks for `gh` on the `PATH` it started with, and falls back to that location; `gh` installed elsewhere is found after an app restart. The thread stops when the app exits, which can wait for a `gh` run in flight: on the first refresh that is about 2 x 20 seconds (the login run, then the search run), later about 20 seconds.
 
 ## Window placement
 

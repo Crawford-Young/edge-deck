@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import type { CodeSnapshot } from '../api'
 import { AgentsPanel } from './AgentsPanel'
 import { GitHubPanel } from './GitHubPanel'
@@ -9,10 +8,9 @@ export interface CodeSetupProps {
   snapshot: CodeSnapshot | null
   /** A failed snapshot read's message. */
   error?: string | null
-  agents?: ReactNode
 }
 
-export function CodeSetup({ snapshot, error, agents }: CodeSetupProps) {
+export function CodeSetup({ snapshot, error }: CodeSetupProps) {
   return (
     <div className="relative flex h-full flex-col gap-4 p-4">
       <h1 className="sr-only">Code</h1>
@@ -27,7 +25,10 @@ export function CodeSetup({ snapshot, error, agents }: CodeSetupProps) {
           <NeedsYouPanel waits={snapshot?.needsYou ?? []} />
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
-          <AgentsPanel agentCount={snapshot?.header.liveAgents ?? 0}>{agents}</AgentsPanel>
+          <AgentsPanel
+            islands={snapshot?.graphs ?? []}
+            liveAgents={snapshot?.header.liveAgents ?? 0}
+          />
         </div>
         <div className="flex w-[640px] shrink-0 flex-col">
           <GitHubPanel />

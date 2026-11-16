@@ -1,7 +1,7 @@
-//! Brief E: the strate-core engine in edge-deck and the `code_snapshot` data.
+//! Tests for `edge_deck_lib::agents` (`src-tauri/src/agents/`): the strate-core
+//! engine run in-process and the `code_snapshot` data, against synthetic stores.
 //!
-//! INTERFACE UNDER TEST (the implementer follows this; `pub mod agents;` in
-//! `lib.rs`, module `src-tauri/src/agents/`):
+//! The interface and document shape these tests pin:
 //!
 //! ```text
 //! pub const POLL_EVERY: Duration            // == strate's engine default (1 s)

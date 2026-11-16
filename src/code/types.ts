@@ -1,4 +1,12 @@
-import type { FocusTarget } from '../api'
+export type SessionKind = 'interactive' | 'background'
+
+/** The session whose terminal `focusTerminal` brings forward. */
+export interface FocusTarget {
+  pid: number
+  sessionId: string
+  title: string
+  kind: SessionKind
+}
 
 /** An agent's state, as strate-core serialises it. */
 export type AgentState = 'working' | 'needs_you' | 'idle' | 'done'

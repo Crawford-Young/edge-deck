@@ -64,6 +64,40 @@ describe('useCodeSnapshot', () => {
     expect(result.current.snapshot).toEqual(snap(2))
   })
 
+  it('issues the first read only after the listener registration has resolved', async () => {
+    let resolve!: (f: () => void) => void
+    vi.mocked(api.onCodeChanged).mockImplementation(
+      (fn) =>
+        new Promise((r) => {
+          changed = fn
+          resolve = r
+        }),
+    )
+    renderHook(() => useCodeSnapshot())
+    await act(async () => {})
+    expect(api.onCodeChanged).toHaveBeenCalledTimes(1)
+    expect(api.codeSnapshot).not.toHaveBeenCalled()
+    await act(async () => resolve(unlisten as never))
+    expect(api.codeSnapshot).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads again for a change fired right after registration resolves', async () => {
+    let resolve!: (f: () => void) => void
+    vi.mocked(api.onCodeChanged).mockImplementation(
+      (fn) =>
+        new Promise((r) => {
+          changed = fn
+          resolve = r
+        }),
+    )
+    const { result } = renderHook(() => useCodeSnapshot())
+    await act(async () => resolve(unlisten as never))
+    vi.mocked(api.codeSnapshot).mockResolvedValue(snap(8))
+    await act(async () => changed())
+    expect(api.codeSnapshot).toHaveBeenCalledTimes(2)
+    expect(result.current.snapshot).toEqual(snap(8))
+  })
+
   it('uses no timer or interval', async () => {
     vi.useFakeTimers()
     await mount()

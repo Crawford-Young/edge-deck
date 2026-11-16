@@ -13,6 +13,12 @@ Apps-domain rules: `~/code/apps/CLAUDE.md`. A fullscreen touch app for a 2560x72
 - Only the dark theme exists (`class="dark"` on `index.html`).
 - Dev server port 1421 is strict (`vite.config.ts` and Tauri `devUrl`), so it runs beside strate's 1420; don't let it fall back.
 
+## Architecture
+
+- The Code setup's data is strate-core's ingest engine run in-process (`src-tauri/src/agents/`, its own store, never strate's). It emits `code-changed`; the webview re-reads the `code_snapshot` command (`src/code/useCodeSnapshot.ts`: subscribe first, then read, no timers). strate-core is a git dep pinned by `rev`.
+- The agent web is `src/code/graph/` (React Flow `@xyflow/react` + `d3-force` layout, one island per session). Look and tap rules are pure functions in `graph/rules.ts` (dense past `DENSE_NODE_COUNT`, hubs, `MIN_TAP_PX` 96); nodes are the library's `AgentNodeRing` (`@crawfordyoung/ui` 0.34). A tap on a node smaller than 96px on screen zooms to it; a tappable node calls `focusTerminal`.
+- Shared types (`FocusTarget`, `SessionKind`, snapshot shapes) live in `src/code/types.ts`; `src/api.ts` re-exports them. Keep `types.ts` free of imports from `api.ts` (no cycle).
+
 ## Traps
 
 - This repo is PUBLIC. Fixtures are synthetic only (placeholder values, no real data or paths). Tokens go in the OS credential store, never in files, env examples or the repo.
