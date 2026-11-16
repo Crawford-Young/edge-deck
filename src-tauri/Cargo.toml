@@ -19,6 +19,10 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
 tungstenite = "0.30.0"
+# The ingest engine and live views behind the Code setup. Pinned to strate main.
+strate-core = { git = "https://github.com/Crawford-Young/strate", rev = "1462771" }
+# The reader connection type strate-core's views take; same version strate-core locks.
+rusqlite = "0.41.1"
 
 # Terminal focus. Same version tauri already locks, so no second copy builds.
 [target.'cfg(windows)'.dependencies]

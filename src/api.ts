@@ -1,5 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import type { CodeSnapshot } from './code/types'
+
+export type { CodeSnapshot }
 
 /** "off" covers OBS closed, its WebSocket server disabled, or no OBS settings file. */
 export type ObsConnection = 'off' | 'connecting' | 'connected' | 'auth-failed'
@@ -76,4 +79,14 @@ export function githubState(): Promise<GithubState> {
 /** Call `cb` on every GitHub state change; resolves to the unsubscribe function. */
 export function onGithubState(cb: (state: GithubState) => void): Promise<UnlistenFn> {
   return listen<GithubState>('github-state', (event) => cb(event.payload))
+}
+
+/** The backend's current Code snapshot; rejects with the backend's message. */
+export function codeSnapshot(): Promise<CodeSnapshot> {
+  return invoke<CodeSnapshot>('code_snapshot')
+}
+
+/** Call `cb` on every Code change (a payload-less event); resolves to the unsubscribe function. */
+export function onCodeChanged(cb: () => void): Promise<UnlistenFn> {
+  return listen<null>('code-changed', () => cb())
 }
