@@ -4,6 +4,10 @@ A fullscreen touch app for a 2560x720 display. Built with Tauri v2, React, Vite 
 
 Status: scaffold only. A placeholder heading, no shell features yet.
 
+## Window placement
+
+The window starts hidden and is placed before it is shown. If an attached display is exactly 2560x720 physical pixels (horizontal), the app opens borderless and fullscreen on it, wherever Windows positions that display; it is found by size only, never by index, name or position. If two displays match, the leftmost wins, then the topmost. With no such display it opens as a normal decorated window centred on the primary display. The choice is a pure function in `src-tauri/src/placement.rs`.
+
 ## Prerequisites
 
 - Windows 11 with WebView2 (preinstalled on Windows 11)
