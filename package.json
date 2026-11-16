@@ -26,8 +26,10 @@
     "*.{json,md,css,yml,yaml,html}": "prettier --write"
   },
   "dependencies": {
-    "@crawfordyoung/ui": "^0.33.0",
+    "@crawfordyoung/ui": "^0.34.0",
     "@tauri-apps/api": "^2.12.4",
+    "@xyflow/react": "^12.12.0",
+    "d3-force": "^3.0.1",
     "lucide-react": "^1.65.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -41,6 +43,7 @@
     "@tauri-apps/cli": "^2.12.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
+    "@types/d3-force": "^3.0.10",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",

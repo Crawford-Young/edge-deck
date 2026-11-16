@@ -30,11 +30,12 @@ export function useCodeSnapshot(): CodeSnapshotState {
         },
       )
     }
+    // Subscribe first, then read, so a change in between is not missed.
     void onCodeChanged(read).then((fn) => {
-      if (active) unlisten = fn
-      else fn()
+      if (!active) return fn()
+      unlisten = fn
+      read()
     })
-    read()
     return () => {
       active = false
       unlisten?.()

@@ -6,6 +6,10 @@ import { useGithub } from './useGithub'
 
 vi.mock('./useGithub', () => ({ useGithub: vi.fn() }))
 vi.mock('../api', () => ({ focusTerminal: vi.fn() }))
+vi.mock('@xyflow/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@xyflow/react')>()),
+  ...(await import('../../tests/xyflow-mock')),
+}))
 
 const NOW = new Date(2030, 0, 15, 12, 0, 0).getTime()
 
@@ -59,15 +63,25 @@ describe('CodeSetup', () => {
           checks: 'failing',
         },
       ],
-      issues: [],
+      issues: [
+        {
+          repo: 'octo/gadgets',
+          number: 9,
+          title: 'Gizmo is slow',
+          url: 'https://example.test/octo/gadgets/issues/9',
+        },
+      ],
     }
     vi.mocked(useGithub).mockReturnValue(state)
     render(<CodeSetup snapshot={null} />)
     const github = screen.getByRole('region', { name: 'GitHub' })
     expect(within(github).getByText('Add a gizmo')).toBeInTheDocument()
+    expect(within(github).getByText('Gizmo is slow')).toBeInTheDocument()
+    expect(within(github).getByText('1 PR · 1 issue')).toBeInTheDocument()
+    expect(screen.queryByText('GitHub panel coming soon')).toBeNull()
   })
 
-  it('passes the snapshot to the header, needs-you panel and agents count', () => {
+  it('passes the snapshot to the header and needs-you panel, and its graphs and live count to the agents panel', () => {
     render(
       <CodeSetup
         snapshot={snapshot({
@@ -79,8 +93,30 @@ describe('CodeSetup', () => {
               focus: null,
             },
           ],
+          graphs: [
+            {
+              sessionId: 'sess-g',
+              startedAtMs: null,
+              sessionCostUsd: null,
+              agents: [
+                {
+                  id: 1,
+                  parent: null,
+                  kind: 'orchestrator',
+                  role: 'conductor',
+                  chargeKey: null,
+                  name: null,
+                  state: 'working',
+                  costUsd: null,
+                  contextPct: null,
+                  depth: 0,
+                  focus: null,
+                },
+              ],
+              edges: [],
+            },
+          ],
         })}
-        agents={<p>graph here</p>}
       />,
     )
     expect(screen.getByText('$1.20')).toBeInTheDocument()
@@ -90,7 +126,8 @@ describe('CodeSetup', () => {
     expect(within(needs).getByText('approve the plan')).toBeInTheDocument()
     const agents = screen.getByRole('region', { name: 'Agents' })
     expect(within(agents).getByText('2')).toBeInTheDocument()
-    expect(within(agents).getByText('graph here')).toBeInTheDocument()
+    expect(within(agents).getByRole('button', { name: /^conductor/ })).toBeInTheDocument()
+    expect(within(agents).queryByText('No agents running')).toBeNull()
   })
 
   it('a needs-you row with focus taps through to focusTerminal', () => {

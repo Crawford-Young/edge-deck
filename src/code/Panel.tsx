@@ -4,10 +4,12 @@ interface PanelProps {
   title: string
   count?: ReactNode
   children: ReactNode
+  /** False for a body that fills the panel and never scrolls, such as a canvas. */
+  scroll?: boolean
 }
 
 /** A labelled panel frame: title row on top, body that scrolls inside itself. */
-export function Panel({ title, count, children }: PanelProps) {
+export function Panel({ title, count, children, scroll = true }: PanelProps) {
   const titleId = useId()
   return (
     <section
@@ -18,7 +20,15 @@ export function Panel({ title, count, children }: PanelProps) {
         <h2 id={titleId}>{title}</h2>
         {count}
       </div>
-      <div className="relative min-h-0 flex-1 touch-pan-y overflow-y-auto">{children}</div>
+      <div
+        className={
+          scroll
+            ? 'relative min-h-0 flex-1 touch-pan-y overflow-y-auto'
+            : 'relative min-h-0 flex-1 overflow-hidden'
+        }
+      >
+        {children}
+      </div>
     </section>
   )
 }

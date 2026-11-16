@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { CodeSnapshot } from './code/types'
+import type { CodeSnapshot, FocusTarget, SessionKind } from './code/types'
 
-export type { CodeSnapshot }
+export type { CodeSnapshot, FocusTarget, SessionKind }
 
 /** "off" covers OBS closed, its WebSocket server disabled, or no OBS settings file. */
 export type ObsConnection = 'off' | 'connecting' | 'connected' | 'auth-failed'
@@ -15,16 +15,6 @@ export interface ObsState {
 /** The backend's current OBS state. */
 export function obsState(): Promise<ObsState> {
   return invoke<ObsState>('obs_state')
-}
-
-export type SessionKind = 'interactive' | 'background'
-
-/** The session whose terminal `focusTerminal` brings forward. */
-export interface FocusTarget {
-  pid: number
-  sessionId: string
-  title: string
-  kind: SessionKind
 }
 
 /**

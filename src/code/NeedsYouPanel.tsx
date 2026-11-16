@@ -15,7 +15,7 @@ function longestFirst(a: Wait, b: Wait): number {
 }
 
 const ROW =
-  'flex min-h-24 w-full flex-col justify-center gap-2 rounded-lg border border-border bg-background p-4 text-left'
+  'flex min-h-24 w-full flex-col justify-center gap-2 rounded-lg border border-border bg-background p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
 function Row({ wait, now }: { wait: Wait; now: number }) {
   return (

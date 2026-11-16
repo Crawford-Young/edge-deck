@@ -15,7 +15,8 @@ pub const QUERY: &str = "query($prQuery:String!,$issueQuery:String!){prs:search(
 
 /// The longest a single `gh` run may take before it is killed and counted as an
 /// error, so a hung network call can't stall the refresher forever. App exit
-/// joins the worker (`Refresher::stop`), so it can wait up to this long.
+/// joins the worker (`Refresher::stop`), so it can wait up to this long per run:
+/// about twice this on the first refresh (the login run, then the search run).
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// How often a running `gh` is checked for exit.
@@ -87,7 +88,8 @@ impl<R: Fn(&[String]) -> Result<String, GithubStatus>> Gh<R> {
 /// Run the real `gh` with `args`.
 /// `gh` is looked up on the `PATH` the app started with, so a fresh install is
 /// not seen there until restart; when it is not found, the default install
-/// location is tried once.
+/// location (`%ProgramFiles%\GitHub CLI`) is tried once. Only an install there
+/// is picked up without a restart.
 pub fn run_gh(args: &[String]) -> Result<String, GithubStatus> {
     let first = run("gh", args, TIMEOUT);
     if first != Err(GithubStatus::GhMissing) {
