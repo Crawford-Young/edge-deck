@@ -19,9 +19,10 @@
 //!     -> Result<Engine, String>             // Err, never a panic
 //! pub fn snapshot(conn: &rusqlite::Connection, now_ms: i64)
 //!     -> Result<Snapshot, E: Debug>         // pure mapping of the store rows
-//! pub fn read_snapshot(db: &Path, now_ms: i64) -> Result<Snapshot, String>
-//!     // opens `Store::open_reader(db)` then `snapshot`; Err when the store
-//!     // is missing (the command's error state)
+//! pub struct Reader; Reader::new(db: PathBuf); Reader::read(&self, now_ms: i64)
+//!     // -> Result<Snapshot, String>: opens `Store::open_reader(db)` on first
+//!     // use, then `snapshot`; Err when the store is missing or unreadable,
+//!     // and the next read opens it afresh (the command's error state)
 //! pub fn wait_order(a: Option<i64>, b: Option<i64>) -> Ordering
 //!     // longest wait first: smaller sinceMs first, None last
 //! ```
@@ -96,6 +97,11 @@ fn scratch(tag: &str) -> Scratch {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("scratch dir");
     Scratch(dir)
+}
+
+/// One read on a fresh [`agents::Reader`].
+fn read_snapshot(db: &Path, now_ms: i64) -> Result<agents::Snapshot, String> {
+    agents::Reader::new(db.to_owned()).read(now_ms)
 }
 
 // ---- synthetic store, built through strate-core's public store API ----
@@ -480,8 +486,7 @@ fn an_empty_store_reads_as_an_empty_snapshot() {
     let dir = scratch("empty");
     let db = dir.join("empty.db");
     drop(Store::open(&db).expect("store"));
-    let snap =
-        serde_json::to_value(agents::read_snapshot(&db, NOW_MS).expect("snapshot")).expect("json");
+    let snap = serde_json::to_value(read_snapshot(&db, NOW_MS).expect("snapshot")).expect("json");
     assert_eq!(snap["graphs"], json!([]));
     assert_eq!(snap["needsYou"], json!([]));
     assert_eq!(snap["header"]["liveAgents"], 0);
@@ -495,7 +500,47 @@ fn an_empty_store_reads_as_an_empty_snapshot() {
 fn a_missing_store_is_an_error_not_a_panic() {
     let dir = scratch("missing");
     let missing = dir.join("no-such.db");
-    assert!(agents::read_snapshot(&missing, NOW_MS).is_err());
+    assert!(read_snapshot(&missing, NOW_MS).is_err());
+}
+
+#[test]
+fn a_failed_open_is_retried_on_the_same_reader() {
+    let dir = scratch("retry-open");
+    let db = dir.join("late.db");
+    let reader = agents::Reader::new(db.clone());
+    let err = reader.read(NOW_MS).expect_err("no store yet");
+    assert!(err.contains("did not open"), "{err}");
+    drop(Store::open(&db).expect("store"));
+    let snap = reader.read(NOW_MS).expect("the store now exists");
+    assert_eq!(
+        serde_json::to_value(snap).expect("json")["graphs"],
+        json!([])
+    );
+}
+
+#[test]
+fn a_failed_read_drops_the_connection_and_the_next_read_reopens() {
+    let dir = scratch("drop-conn");
+    let db = dir.join("broken.db");
+    drop(Store::open(&db).expect("store"));
+    let reader = agents::Reader::new(db.clone());
+    reader.read(NOW_MS).expect("a healthy first read");
+    // Break the schema under the open reader.
+    let writer = Connection::open(&db).expect("writer");
+    writer
+        .execute_batch("DROP TABLE registry")
+        .expect("drop a table the views read");
+    drop(writer);
+    let err = reader.read(NOW_MS).expect_err("the read fails");
+    assert!(err.contains("did not read"), "{err}");
+    // The failed read released the file: it can be removed (Windows refuses
+    // while a connection holds it), and the next read tries to open afresh
+    // rather than reading on the stale connection.
+    std::fs::remove_file(&db).expect("no connection holds the store");
+    let err = reader.read(NOW_MS).expect_err("the store is gone");
+    assert!(err.contains("did not open"), "{err}");
+    drop(Store::open(&db).expect("store"));
+    reader.read(NOW_MS).expect("a rebuilt store reads again");
 }
 
 // ---- focus ----

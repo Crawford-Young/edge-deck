@@ -4,7 +4,7 @@
 //! The engine thread owns the store writer and calls `on_change` (already
 //! throttled to [`DEBOUNCE`](strate_core::engine::DEBOUNCE)) after each
 //! commit; the host turns that into one [`CHANGED_EVENT`], and the webview
-//! answers it with the `code_snapshot` command ([`read_snapshot`]).
+//! answers it with the `code_snapshot` command ([`Reader`]).
 
 mod snapshot;
 
@@ -17,7 +17,7 @@ use strate_core::engine::{Config, Engine};
 use strate_core::registry::{PollOptions, cli_runner};
 
 pub use snapshot::{
-    Agent, Edge, Focus, Header, Island, Reader, Snapshot, Wait, read_snapshot, snapshot, wait_order,
+    Agent, Edge, Focus, Header, Island, Reader, Snapshot, Wait, snapshot, wait_order,
 };
 
 /// How often the engine polls `claude agents --json --all`. Left at the
