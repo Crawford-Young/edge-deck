@@ -1,7 +1,8 @@
 //! Pure decisions for putting the cursor back after a touch on the Edge.
 //!
-//! The Win32 side feeds every low-level mouse event to a `Tracker` and asks
-//! it, a short delay after a touch ends, where the cursor should go. All
+//! The Win32 side feeds a `Tracker` every low-level mouse event and every
+//! raw-input report from the touchscreen, and asks it, once the reports have
+//! gone quiet for `RESTORE_DELAY_MS`, where the cursor should go. All
 //! geometry is physical screen pixels (the process is per-monitor DPI aware).
 
 use crate::placement::Placement;
@@ -10,13 +11,14 @@ use crate::placement::Placement;
 /// in their extra info (`MI_WP_SIGNATURE`), under `SIGNATURE_MASK`.
 const POINTER_SIGNATURE: usize = 0xFF51_5700;
 const SIGNATURE_MASK: usize = 0xFFFF_FF00;
-/// Within a pointer signature, this bit marks touch rather than pen.
-const TOUCH_BIT: usize = 0x80;
 
-/// How long after a touch ends the cursor is put back. Long enough for the
-/// burst of mouse messages Windows promotes from one tap to finish, well
-/// inside the 100 ms the restore must land in.
-pub const RESTORE_DELAY_MS: u32 = 40;
+/// How long the touchscreen must stay quiet before the touch counts as ended
+/// and the cursor goes back. A touchscreen reports at 100 Hz or more while any
+/// finger is down (a held finger every 10 ms, 17 ms on a 60 Hz panel), so 50 ms
+/// outlasts about three missed reports. The thread timer rounds up to the
+/// 15.6 ms system tick, so the restore lands at most about 63 ms after the
+/// last report, inside the 100 ms it must land in.
+pub const RESTORE_DELAY_MS: u32 = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Point {
@@ -43,38 +45,31 @@ impl Rect {
     }
 }
 
-/// Where a mouse event came from.
+/// Where a low-level mouse event came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
+    /// A real mouse.
     Mouse,
-    Pen,
-    Touch,
+    /// Pen or touch that Windows promoted to mouse messages (for another
+    /// app; a touch on edge-deck's webview is never promoted).
+    Pointer,
 }
 
-/// What a mouse event did. Touch promotes a tap to left down/up and a
-/// press-and-hold to right down/up; anything else reads as a move.
+/// Something the Win32 side saw.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Kind {
-    Move,
-    Down,
-    Up,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Input {
-    pub source: Source,
-    pub kind: Kind,
-    pub point: Point,
+pub enum Input {
+    /// A low-level mouse hook event, with the cursor point it carries.
+    Hook { source: Source, point: Point },
+    /// A raw-input report from a touchscreen: some finger is down.
+    TouchReport,
 }
 
 /// Classify a low-level mouse event by its `dwExtraInfo`.
 pub fn source_of(extra_info: usize) -> Source {
-    if extra_info & SIGNATURE_MASK != POINTER_SIGNATURE {
-        Source::Mouse
-    } else if extra_info & TOUCH_BIT != 0 {
-        Source::Touch
+    if extra_info & SIGNATURE_MASK == POINTER_SIGNATURE {
+        Source::Pointer
     } else {
-        Source::Pen
+        Source::Mouse
     }
 }
 
@@ -114,37 +109,40 @@ impl Tracker {
         }
     }
 
-    /// Take in one mouse event. True when a restore became due, so the
-    /// caller (re)starts its `RESTORE_DELAY_MS` timer.
+    /// Take in one input. True when the caller must (re)start its
+    /// `RESTORE_DELAY_MS` timer, so the timer fires only once the reports stop.
     ///
+    /// - A touchscreen report, with a known position, makes the restore due.
     /// - A real mouse event cancels any due restore (the mouse is in use)
     ///   and, off the Edge, becomes the known position. Moving the cursor
     ///   back reads as a mouse event at that same position: no change.
-    /// - A touch button-up on the Edge, with a known position, makes the
-    ///   restore due. Any other touch event (a move, a new contact) cancels
-    ///   it, so the cursor never moves while a touch is down.
-    /// - Pen input is ignored.
+    /// - Promoted pen or touch events are ignored.
     pub fn on_input(&mut self, input: Input) -> bool {
-        match input.source {
-            Source::Mouse => {
+        match input {
+            Input::TouchReport => {
+                self.pending = self.last_off_edge;
+                self.pending.is_some()
+            }
+            Input::Hook {
+                source: Source::Mouse,
+                point,
+            } => {
                 self.pending = None;
-                if !self.edge.contains(input.point) {
-                    self.last_off_edge = Some(input.point);
+                if !self.edge.contains(point) {
+                    self.last_off_edge = Some(point);
                 }
                 false
             }
-            Source::Touch => {
-                let ended = input.kind == Kind::Up && self.edge.contains(input.point);
-                self.pending = if ended { self.last_off_edge } else { None };
-                self.pending.is_some()
-            }
-            Source::Pen => false,
+            Input::Hook {
+                source: Source::Pointer,
+                ..
+            } => false,
         }
     }
 
     /// The timer fired with the cursor at `cursor`: where to move it, if
     /// anywhere. Clears the due restore either way. Nothing moves when the
-    /// cursor has already left the Edge.
+    /// cursor is not on the Edge.
     pub fn due(&mut self, cursor: Point) -> Option<Point> {
         self.pending.take().filter(|_| self.edge.contains(cursor))
     }
@@ -168,43 +166,37 @@ mod tests {
     const TOUCH_INFO: usize = 0xFF51_5780 | 0x01;
     const PEN_INFO: usize = 0xFF51_5700 | 0x01;
 
-    fn input(source: Source, kind: Kind, point: Point) -> Input {
-        Input {
-            source,
-            kind,
+    fn mouse(point: Point) -> Input {
+        Input::Hook {
+            source: Source::Mouse,
             point,
         }
     }
 
-    fn mouse_move(point: Point) -> Input {
-        input(Source::Mouse, Kind::Move, point)
-    }
-
-    fn touch(kind: Kind, point: Point) -> Input {
-        input(Source::Touch, kind, point)
+    fn promoted(point: Point) -> Input {
+        Input::Hook {
+            source: Source::Pointer,
+            point,
+        }
     }
 
     /// A tracker that last saw the real mouse at `MAIN`.
     fn seen_at_main() -> Tracker {
         let mut t = Tracker::new(EDGE);
-        assert!(!t.on_input(mouse_move(MAIN)));
+        assert!(!t.on_input(mouse(MAIN)));
         t
-    }
-
-    /// Feed a whole tap on the Edge; true if the last event made a restore due.
-    fn tap(t: &mut Tracker, at: Point) -> bool {
-        t.on_input(touch(Kind::Move, at));
-        t.on_input(touch(Kind::Down, at));
-        t.on_input(touch(Kind::Up, at))
     }
 
     #[test]
     fn source_reads_the_pointer_signature() {
         assert_eq!(source_of(0), Source::Mouse);
-        assert_eq!(source_of(TOUCH_INFO), Source::Touch);
-        assert_eq!(source_of(PEN_INFO), Source::Pen);
+        assert_eq!(source_of(TOUCH_INFO), Source::Pointer);
+        assert_eq!(source_of(PEN_INFO), Source::Pointer);
         // Only the masked bits count, so high bits on 64-bit do not hide it.
-        assert_eq!(source_of(0x1234_0000_0000_0000 | TOUCH_INFO), Source::Touch);
+        assert_eq!(
+            source_of(0x1234_0000_0000_0000 | TOUCH_INFO),
+            Source::Pointer
+        );
         // A near miss in the signature is a real mouse.
         assert_eq!(source_of(0xFF51_5880), Source::Mouse);
         assert_eq!(source_of(0x0051_5780), Source::Mouse);
@@ -255,128 +247,115 @@ mod tests {
     }
 
     #[test]
-    fn a_tap_on_the_edge_puts_the_cursor_back_where_the_mouse_was() {
+    fn touch_activity_then_quiet_puts_the_cursor_back() {
         let mut t = seen_at_main();
-        assert!(tap(&mut t, ON_EDGE));
+        // Windows jumped the cursor onto the Edge; a report asks for the timer.
+        assert!(t.on_input(Input::TouchReport));
+        // The timer fired with no report since: the touch has ended.
         assert_eq!(t.due(ON_EDGE), Some(MAIN));
         // Once only.
         assert_eq!(t.due(ON_EDGE), None);
     }
 
     #[test]
+    fn every_report_restarts_the_delay() {
+        let mut t = seen_at_main();
+        // A held finger, a drag or a pinch keeps reporting: each report asks
+        // for the timer again, so it only fires after the last one.
+        for _ in 0..20 {
+            assert!(t.on_input(Input::TouchReport));
+        }
+        assert_eq!(t.due(ON_EDGE), Some(MAIN));
+    }
+
+    #[test]
+    fn a_touch_after_a_restore_restores_again() {
+        let mut t = seen_at_main();
+        assert!(t.on_input(Input::TouchReport));
+        assert_eq!(t.due(ON_EDGE), Some(MAIN));
+        assert!(t.on_input(Input::TouchReport));
+        assert_eq!(t.due(ON_EDGE), Some(MAIN));
+    }
+
+    #[test]
     fn the_restore_goes_to_the_latest_position_off_the_edge() {
         let mut t = seen_at_main();
         let later = Point { x: 10, y: 20 };
-        t.on_input(mouse_move(later));
+        t.on_input(mouse(later));
         // The mouse then crosses onto the Edge; that is not remembered.
-        t.on_input(mouse_move(ON_EDGE));
-        assert!(tap(&mut t, ON_EDGE));
+        t.on_input(mouse(ON_EDGE));
+        assert!(t.on_input(Input::TouchReport));
         assert_eq!(t.due(ON_EDGE), Some(later));
     }
 
     #[test]
-    fn press_and_hold_ends_with_a_right_up_and_restores() {
+    fn nothing_moves_without_a_known_position() {
+        let mut t = Tracker::new(EDGE);
+        assert!(!t.on_input(Input::TouchReport));
+        assert_eq!(t.due(ON_EDGE), None);
+        // A real mouse seen only on the Edge is still no known position.
+        t.on_input(mouse(ON_EDGE));
+        assert!(!t.on_input(Input::TouchReport));
+        assert_eq!(t.due(ON_EDGE), None);
+    }
+
+    #[test]
+    fn no_restore_when_the_cursor_is_off_the_edge_at_fire_time() {
         let mut t = seen_at_main();
-        t.on_input(touch(Kind::Down, ON_EDGE));
-        assert!(t.on_input(touch(Kind::Up, ON_EDGE)));
+        // A touch on another touchscreen, or the cursor already moved away.
+        assert!(t.on_input(Input::TouchReport));
+        assert_eq!(t.due(Point { x: 100, y: 100 }), None);
+    }
+
+    #[test]
+    fn promoted_pen_or_touch_events_are_never_a_known_position() {
+        let mut t = Tracker::new(EDGE);
+        assert!(!t.on_input(promoted(MAIN)));
+        assert!(!t.on_input(Input::TouchReport));
+        assert_eq!(t.due(ON_EDGE), None);
+    }
+
+    #[test]
+    fn promoted_events_neither_move_the_target_nor_cancel_it() {
+        let mut t = seen_at_main();
+        assert!(t.on_input(Input::TouchReport));
+        // Another app's touch promoted to mouse messages, off the Edge and on.
+        assert!(!t.on_input(promoted(Point { x: 10, y: 20 })));
+        assert!(!t.on_input(promoted(ON_EDGE)));
         assert_eq!(t.due(ON_EDGE), Some(MAIN));
     }
 
     #[test]
     fn a_real_mouse_on_the_edge_is_left_alone() {
         let mut t = seen_at_main();
-        assert!(!t.on_input(mouse_move(ON_EDGE)));
-        assert!(!t.on_input(input(Source::Mouse, Kind::Down, ON_EDGE)));
-        assert!(!t.on_input(input(Source::Mouse, Kind::Up, ON_EDGE)));
+        assert!(!t.on_input(mouse(ON_EDGE)));
+        assert!(!t.on_input(mouse(Point { x: 4000, y: 900 })));
         assert_eq!(t.due(ON_EDGE), None);
     }
 
     #[test]
-    fn pen_input_never_restores_and_is_not_remembered() {
-        let mut t = Tracker::new(EDGE);
-        assert!(!t.on_input(input(Source::Pen, Kind::Move, MAIN)));
-        assert!(!t.on_input(input(Source::Pen, Kind::Up, ON_EDGE)));
-        // The pen's off-Edge point was not taken as a known position.
-        assert!(!tap(&mut t, ON_EDGE));
-        assert_eq!(t.due(ON_EDGE), None);
-    }
-
-    #[test]
-    fn no_restore_while_a_touch_is_down() {
+    fn a_real_mouse_event_after_the_touch_cancels_the_restore() {
         let mut t = seen_at_main();
-        t.on_input(touch(Kind::Down, ON_EDGE));
-        for x in [3000, 3100, 3200] {
-            assert!(!t.on_input(touch(Kind::Move, Point { x, y: 700 })));
-            assert_eq!(t.due(Point { x, y: 700 }), None);
-        }
-        assert!(t.on_input(touch(Kind::Up, Point { x: 3200, y: 700 })));
-        assert_eq!(t.due(Point { x: 3200, y: 700 }), Some(MAIN));
-    }
-
-    #[test]
-    fn a_new_touch_inside_the_delay_cancels_the_restore() {
-        let mut t = seen_at_main();
-        assert!(tap(&mut t, ON_EDGE));
-        // A second finger-down (a double tap, or a drag starting) before the
-        // timer fires: the first restore must not land mid-gesture.
-        assert!(!t.on_input(touch(Kind::Move, ON_EDGE)));
-        assert!(!t.on_input(touch(Kind::Down, ON_EDGE)));
-        assert_eq!(t.due(ON_EDGE), None);
-        // The second touch's own end restores.
-        assert!(t.on_input(touch(Kind::Up, ON_EDGE)));
-        assert_eq!(t.due(ON_EDGE), Some(MAIN));
-    }
-
-    #[test]
-    fn a_real_mouse_move_inside_the_delay_cancels_the_restore() {
-        let mut t = seen_at_main();
-        assert!(tap(&mut t, ON_EDGE));
+        assert!(t.on_input(Input::TouchReport));
+        // The mouse is in use on the Edge before the timer fires.
         let grabbed = Point { x: 2600, y: 900 };
-        t.on_input(mouse_move(grabbed));
+        assert!(!t.on_input(mouse(grabbed)));
         assert_eq!(t.due(grabbed), None);
-    }
-
-    #[test]
-    fn nothing_moves_without_a_known_earlier_position() {
-        let mut t = Tracker::new(EDGE);
-        assert!(!tap(&mut t, ON_EDGE));
-        assert_eq!(t.due(ON_EDGE), None);
-        // A real mouse seen only on the Edge is still no known position.
-        t.on_input(mouse_move(ON_EDGE));
-        assert!(!tap(&mut t, ON_EDGE));
-        assert_eq!(t.due(ON_EDGE), None);
-    }
-
-    #[test]
-    fn a_touch_ending_off_the_edge_does_not_restore() {
-        let mut t = seen_at_main();
-        let other = Point { x: 500, y: 500 };
-        assert!(!tap(&mut t, other));
-        assert_eq!(t.due(other), None);
-        // Nor is that touch point taken as a known position.
-        assert!(tap(&mut t, ON_EDGE));
+        // A later touch still goes back to the last place off the Edge.
+        assert!(t.on_input(Input::TouchReport));
         assert_eq!(t.due(ON_EDGE), Some(MAIN));
-    }
-
-    #[test]
-    fn no_restore_when_the_cursor_already_left_the_edge() {
-        let mut t = seen_at_main();
-        assert!(tap(&mut t, ON_EDGE));
-        // Something else moved the cursor off the Edge before the timer.
-        assert_eq!(t.due(Point { x: 100, y: 100 }), None);
     }
 
     #[test]
     fn the_restore_reads_back_as_no_change() {
         let mut t = seen_at_main();
-        assert!(tap(&mut t, ON_EDGE));
-        let target = t.due(ON_EDGE);
-        assert_eq!(target, Some(MAIN));
+        assert!(t.on_input(Input::TouchReport));
+        assert_eq!(t.due(ON_EDGE), Some(MAIN));
         // If moving the cursor shows up as a mouse event at the target, it
         // arms nothing and keeps the same known position.
-        assert!(!t.on_input(mouse_move(MAIN)));
+        assert!(!t.on_input(mouse(MAIN)));
         assert_eq!(t.due(MAIN), None);
-        assert!(tap(&mut t, ON_EDGE));
+        assert!(t.on_input(Input::TouchReport));
         assert_eq!(t.due(ON_EDGE), Some(MAIN));
     }
 }

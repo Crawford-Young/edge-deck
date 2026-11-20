@@ -1,13 +1,14 @@
 //! Put the mouse cursor back after a touch on the Edge.
 //!
-//! Windows moves the cursor to every touch point. A low-level mouse hook
-//! (`windows.rs`) tells touch from a real mouse by the pointer signature in
-//! each event's extra info, remembers where the real mouse last was off the
-//! Edge, and once a touch on the Edge ends moves the cursor back there. Every
+//! Windows moves the cursor to the touch point. A low-level mouse hook
+//! (`windows.rs`) remembers where the real mouse last was off the Edge
+//! (events carrying the pen/touch signature never count), raw input from the
+//! touchscreen tells that a finger is down, and once its reports stop for
+//! `plan::RESTORE_DELAY_MS` the cursor goes back, if it is on the Edge. Every
 //! decision is the pure `plan::Tracker`; elsewhere than Windows this is a
 //! no-op.
 
-// The hook is Windows-only; elsewhere only the tests use the tracker.
+// The listener is Windows-only; elsewhere only the tests use the tracker.
 #![cfg_attr(not(windows), allow(dead_code))]
 
 mod plan;

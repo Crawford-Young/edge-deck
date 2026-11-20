@@ -74,13 +74,18 @@ fn place_main_window(app: &tauri::App) -> tauri::Result<Placement> {
     Ok(placement)
 }
 
-/// On the Edge, start putting the cursor back after each touch there. A hook
-/// that cannot be installed leaves the cursor where Windows puts it.
+/// On the Edge, start putting the cursor back after each touch there. A
+/// listener that cannot start is logged and leaves the cursor where Windows
+/// puts it.
 fn start_cursor_restore(app: &tauri::App, placement: &Placement) {
-    if let Some(edge) = cursor::edge_rect(placement)
-        && let Ok(restorer) = cursor::Restorer::start(edge)
-    {
-        app.manage(restorer);
+    let Some(edge) = cursor::edge_rect(placement) else {
+        return;
+    };
+    match cursor::Restorer::start(edge) {
+        Ok(restorer) => {
+            app.manage(restorer);
+        }
+        Err(e) => eprintln!("cursor restore off: {e}"),
     }
 }
 
