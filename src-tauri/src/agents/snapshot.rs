@@ -3,7 +3,7 @@
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Mutex, PoisonError};
 
 use rusqlite::Connection;
@@ -144,11 +144,6 @@ impl Reader {
             format!("the Code store did not read: {e}")
         })
     }
-}
-
-/// Opens a reader on the store at `db` for one [`snapshot`] read.
-pub fn read_snapshot(db: &Path, now_ms: i64) -> Result<Snapshot, String> {
-    Reader::new(db.to_owned()).read(now_ms)
 }
 
 /// The snapshot of the store on `conn`, with today's spend for the local
