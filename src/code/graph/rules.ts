@@ -1,4 +1,5 @@
 import type { GraphAgent, Island } from '../types'
+import type { Point } from './layout'
 
 /** The web is dense when the total agent count is strictly greater than this. */
 export const DENSE_NODE_COUNT = 24
@@ -6,6 +7,8 @@ export const DENSE_NODE_COUNT = 24
 export const HUB_CHILD_COUNT = 3
 /** Smallest touch target, px. */
 export const MIN_TAP_PX = 96
+/** A press that stays within this distance of where it began is a tap, not a pan, px. */
+export const TAP_SLOP_PX = 8
 /** Root node diameter, px; matches AgentNodeRing. */
 export const ROOT_NODE_PX = 120
 /** Every non-root node diameter in the normal look, px. */
@@ -39,6 +42,10 @@ export const childCounts = (island: Island): ReadonlyMap<number, number> => {
   }
   return counts
 }
+
+/** Whether a pointer that began at `from` and is now at `to` is still within a tap's slop. */
+export const isTapJitter = (from: Point, to: Point): boolean =>
+  Math.hypot(to.x - from.x, to.y - from.y) < TAP_SLOP_PX
 
 export const isTappable = (sizePx: number, zoom: number): boolean => sizePx * zoom >= MIN_TAP_PX
 
