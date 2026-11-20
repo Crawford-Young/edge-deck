@@ -1,4 +1,5 @@
 pub mod agents;
+mod cursor;
 mod focus;
 mod github;
 mod obs;
@@ -34,7 +35,8 @@ fn describe(monitor: &tauri::Monitor, primary: Option<&tauri::Monitor>) -> Monit
     }
 }
 
-fn place_main_window(app: &tauri::App) -> tauri::Result<()> {
+/// Place the main window and show it; returns the placement chosen.
+fn place_main_window(app: &tauri::App) -> tauri::Result<Placement> {
     let window = app
         .get_webview_window("main")
         .expect("main window is declared in tauri.conf.json");
@@ -44,7 +46,8 @@ fn place_main_window(app: &tauri::App) -> tauri::Result<()> {
         .iter()
         .map(|m| describe(m, primary.as_ref()))
         .collect();
-    match choose_placement(&monitors) {
+    let placement = choose_placement(&monitors);
+    match placement {
         Placement::Fullscreen {
             x,
             y,
@@ -67,7 +70,18 @@ fn place_main_window(app: &tauri::App) -> tauri::Result<()> {
         }
         Placement::Default => {}
     }
-    window.show()
+    window.show()?;
+    Ok(placement)
+}
+
+/// On the Edge, start putting the cursor back after each touch there. A hook
+/// that cannot be installed leaves the cursor where Windows puts it.
+fn start_cursor_restore(app: &tauri::App, placement: &Placement) {
+    if let Some(edge) = cursor::edge_rect(placement)
+        && let Ok(restorer) = cursor::Restorer::start(edge)
+    {
+        app.manage(restorer);
+    }
 }
 
 /// Current OBS state, for a webview that mounts after the last `obs-state` event.
@@ -185,7 +199,9 @@ pub fn run() {
             start_obs_watcher(app);
             start_github_refresher(app);
             manage_code_engine(app);
-            Ok(place_main_window(app)?)
+            let placement = place_main_window(app)?;
+            start_cursor_restore(app, &placement);
+            Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building edge-deck")
@@ -196,6 +212,9 @@ pub fn run() {
                 }
                 if let Some(refresher) = app.try_state::<Refresher>() {
                     refresher.stop();
+                }
+                if let Some(restorer) = app.try_state::<cursor::Restorer>() {
+                    restorer.stop();
                 }
                 if let Some(code) = app.try_state::<Code>()
                     && let Some(engine) = code
