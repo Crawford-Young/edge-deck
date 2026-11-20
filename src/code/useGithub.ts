@@ -26,7 +26,9 @@ export function useGithub(): GithubState {
           (s) => {
             if (!seen) apply(s)
           },
-          () => {},
+          () => {
+            if (!seen) apply({ status: 'error', prs: [], issues: [] })
+          },
         )
       },
       () => {

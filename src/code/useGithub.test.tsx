@@ -63,10 +63,27 @@ describe('useGithub', () => {
     expect(result.current.status).toBe('gh-missing')
   })
 
-  it('keeps loading when the initial read rejects', async () => {
+  it('surfaces the error state when the initial read rejects', async () => {
     vi.mocked(api.githubState).mockRejectedValue(new Error('no backend'))
     const { result } = await mount()
-    expect(result.current).toEqual(loading)
+    expect(result.current).toEqual({ status: 'error', prs: [], issues: [] })
+  })
+
+  it('lets a later event replace the error from a failed initial read', async () => {
+    vi.mocked(api.githubState).mockRejectedValue(new Error('no backend'))
+    const { result } = await mount()
+    act(() => cb(withPr(8)))
+    expect(result.current).toEqual(withPr(8))
+  })
+
+  it('does not let a failed read overwrite a state an event already delivered', async () => {
+    let reject!: (e: unknown) => void
+    vi.mocked(api.githubState).mockImplementation(() => new Promise((_, r) => (reject = r)))
+    const { result } = await mount()
+    act(() => cb(withPr(9)))
+    reject(new Error('late failure'))
+    await act(async () => {})
+    expect(result.current).toEqual(withPr(9))
   })
 
   it('subscribes first and reads only once the subscription is in place', async () => {
