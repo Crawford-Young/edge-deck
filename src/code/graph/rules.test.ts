@@ -7,9 +7,11 @@ import {
   HUB_CHILD_COUNT,
   MIN_TAP_PX,
   ROOT_NODE_PX,
+  TAP_SLOP_PX,
   childCounts,
   isDense,
   isLabelled,
+  isTapJitter,
   isTappable,
   nodeKey,
   nodeSizePx,
@@ -96,6 +98,16 @@ describe('childCounts', () => {
 })
 
 describe('isTappable', () => {
+  it('a pointer within TAP_SLOP_PX of where it began is jitter, at or past it is a pan, in any direction', () => {
+    expect(TAP_SLOP_PX).toBe(8)
+    const from = { x: 100, y: 100 }
+    expect(isTapJitter(from, from)).toBe(true)
+    expect(isTapJitter(from, { x: 102, y: 99 })).toBe(true)
+    expect(isTapJitter(from, { x: 100 - (TAP_SLOP_PX - 1), y: 100 })).toBe(true)
+    expect(isTapJitter(from, { x: 100, y: 100 + TAP_SLOP_PX })).toBe(false)
+    expect(isTapJitter(from, { x: 100 + 6, y: 100 + 6 })).toBe(false)
+  })
+
   it('is true when size times zoom reaches MIN_TAP_PX, false below', () => {
     expect(MIN_TAP_PX).toBe(96)
     expect(isTappable(MIN_TAP_PX, 1)).toBe(true)

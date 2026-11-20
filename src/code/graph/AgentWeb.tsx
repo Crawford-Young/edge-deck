@@ -21,6 +21,7 @@ import {
   childCounts,
   DENSE_MIN_NODE_PX,
   isDense,
+  isTapJitter,
   isTappable,
   MIN_TAP_PX,
   nodeKey,
@@ -56,6 +57,15 @@ const FIT_FRAME_PADDING = {
   bottom: FIT_PADDING,
   left: FIT_PADDING,
 } as const
+
+/** Where a one-pointer press sits on screen; null for a wheel or a multi-touch, which are never taps. */
+const pointOf = (event: MouseEvent | TouchEvent): Point | null => {
+  if ('touches' in event) {
+    const [only, ...rest] = Array.from(event.touches)
+    return only && rest.length === 0 ? { x: only.clientX, y: only.clientY } : null
+  }
+  return event.type === 'wheel' ? null : { x: event.clientX, y: event.clientY }
+}
 
 type ClusterNodeData = Readonly<{ label: string }>
 type ClusterFlowNode = Node<ClusterNodeData, 'cluster'>
@@ -227,11 +237,21 @@ function Web({ islands }: { islands: readonly Island[] }) {
 
   // React Flow hands d3-zoom's source event to onMove: the DOM event (pointer, wheel, touch)
   // for a user gesture, null for fitView / setCenter (@xyflow/system dist/esm/index.mjs:2861-2870,
-  // forwarded at @xyflow/react dist/esm/index.mjs:1325-1329). onMoveStart is not used: d3-zoom
-  // starts a gesture on pointer down before anything moves (d3-zoom dist/d3-zoom.js:357), so a
-  // still tap on the pane would count; onMove only fires once the view moves (:366).
+  // forwarded at @xyflow/react dist/esm/index.mjs:1325-1329). onMoveStart only records where the
+  // press began: d3-zoom starts a gesture on pointer down before anything moves (d3-zoom
+  // dist/d3-zoom.js:357), so a still tap would count if it disarmed. onMove fires on every pointer
+  // move (:366), so a jittery tap would count too; it disarms once the pointer has travelled
+  // TAP_SLOP_PX from the press, or at once for a wheel or a second finger (no tap reading).
+  // React Flow's paneClickDistance only gates its onPaneClick, never these callbacks.
+  const pressStart = useRef<Point | null>(null)
+  const onMoveStart = (event: MouseEvent | TouchEvent | null) => {
+    pressStart.current = event === null ? null : pointOf(event)
+  }
   const onMove = (event: MouseEvent | TouchEvent | null) => {
-    if (event !== null) autoFit.current = false
+    if (event === null) return
+    const at = pointOf(event)
+    const from = pressStart.current
+    if (at === null || from === null || !isTapJitter(from, at)) autoFit.current = false
   }
 
   // A new snapshot: refresh node data; lay out again only when the shape changed.
@@ -283,6 +303,7 @@ function Web({ islands }: { islands: readonly Island[] }) {
       nodeOrigin={NODE_ORIGIN}
       onNodesChange={onNodesChange}
       onNodeClick={onNodeClick}
+      onMoveStart={onMoveStart}
       onMove={onMove}
       onNodeDragStart={() => {
         autoFit.current = false

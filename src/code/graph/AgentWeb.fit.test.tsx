@@ -121,21 +121,35 @@ const wholeWebFitsAtMount = (): FitOptions[] => {
   return [...fromProp, ...fitCalls()]
 }
 
+const VP = { x: 0, y: 0, zoom: 1 }
+
+const mouse = (type: string, x: number, y: number): MouseEvent =>
+  new MouseEvent(type, { clientX: x, clientY: y })
+
+/** A touch event carrying one touch point per [x, y] pair. */
+const touch = (type: string, ...points: [number, number][]): TouchEvent =>
+  Object.assign(new Event(type), {
+    touches: points.map(([clientX, clientY]) => ({ clientX, clientY })),
+  }) as unknown as TouchEvent
+
 const userSignals: Record<string, () => void> = {
   'a pan (mousedown)': () => {
-    const vp = { x: 5, y: 5, zoom: 1 }
-    flowProps().onMoveStart?.(new MouseEvent('mousedown'), vp)
-    flowProps().onMove?.(new MouseEvent('mousemove'), vp)
+    flowProps().onMoveStart?.(mouse('mousedown', 100, 100), VP)
+    flowProps().onMove?.(mouse('mousemove', 140, 100), VP)
+  },
+  'a one-finger touch pan': () => {
+    flowProps().onMoveStart?.(touch('touchstart', [100, 100]), VP)
+    flowProps().onMove?.(touch('touchmove', [100, 150]), VP)
   },
   'a wheel zoom': () => {
     const vp = { x: 0, y: 0, zoom: 1.5 }
     flowProps().onMoveStart?.(new WheelEvent('wheel'), vp)
     flowProps().onMove?.(new WheelEvent('wheel'), vp)
   },
-  'a pinch (touchstart)': () => {
+  'a pinch (two touches, barely moved)': () => {
     const vp = { x: 0, y: 0, zoom: 0.7 }
-    flowProps().onMoveStart?.(new Event('touchstart') as unknown as TouchEvent, vp)
-    flowProps().onMove?.(new Event('touchmove') as unknown as TouchEvent, vp)
+    flowProps().onMoveStart?.(touch('touchstart', [100, 100]), vp)
+    flowProps().onMove?.(touch('touchmove', [100, 101], [200, 200]), vp)
   },
   'a node drag': () => {
     const node = must(
@@ -209,6 +223,61 @@ describe('AgentWeb auto-fit', () => {
     fitView.mockClear()
     rerender(<AgentWeb islands={[island('a', 3), island('b', 2)]} />)
     expect(fitView).toHaveBeenCalled()
+  })
+
+  const jitters: Record<string, () => void> = {
+    'a mouse press that drifts 2px': () => {
+      flowProps().onMoveStart?.(mouse('mousedown', 100, 100), VP)
+      flowProps().onMove?.(mouse('mousemove', 101, 102), VP)
+      flowProps().onMove?.(mouse('mousemove', 99, 101), VP)
+    },
+    'a one-finger touch that drifts 2px': () => {
+      flowProps().onMoveStart?.(touch('touchstart', [300, 300]), VP)
+      flowProps().onMove?.(touch('touchmove', [302, 301]), VP)
+    },
+  }
+
+  for (const [name, jitter] of Object.entries(jitters)) {
+    it(`${name} keeps auto-fit armed`, () => {
+      const { rerender } = render(<AgentWeb islands={[island('a', 3)]} />)
+      act(jitter)
+      fitView.mockClear()
+      rerender(<AgentWeb islands={[island('a', 3), island('b', 2)]} />)
+      expect(fitView).toHaveBeenCalled()
+    })
+  }
+
+  it('a press that jitters first and then travels past the slop disarms auto-fit', () => {
+    const { rerender } = render(<AgentWeb islands={[island('a', 3)]} />)
+    act(() => {
+      flowProps().onMoveStart?.(mouse('mousedown', 100, 100), VP)
+      flowProps().onMove?.(mouse('mousemove', 102, 100), VP)
+      flowProps().onMove?.(mouse('mousemove', 160, 100), VP)
+      flowProps().onMove?.(mouse('mousemove', 101, 100), VP)
+    })
+    fitView.mockClear()
+    rerender(<AgentWeb islands={[island('a', 3), island('b', 2)]} />)
+    expect(fitView).not.toHaveBeenCalled()
+  })
+
+  it('measures each press from its own start, so an earlier tap does not carry over', () => {
+    const { rerender } = render(<AgentWeb islands={[island('a', 3)]} />)
+    act(() => {
+      flowProps().onMoveStart?.(mouse('mousedown', 0, 0), VP)
+      flowProps().onMoveStart?.(mouse('mousedown', 500, 500), VP)
+      flowProps().onMove?.(mouse('mousemove', 502, 501), VP)
+    })
+    fitView.mockClear()
+    rerender(<AgentWeb islands={[island('a', 3), island('b', 2)]} />)
+    expect(fitView).toHaveBeenCalled()
+  })
+
+  it('a move with no recorded press start counts as moving the view', () => {
+    const { rerender } = render(<AgentWeb islands={[island('a', 3)]} />)
+    act(() => flowProps().onMove?.(mouse('mousemove', 1, 1), VP))
+    fitView.mockClear()
+    rerender(<AgentWeb islands={[island('a', 3), island('b', 2)]} />)
+    expect(fitView).not.toHaveBeenCalled()
   })
 
   for (const [name, move] of Object.entries(userSignals)) {
