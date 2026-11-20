@@ -24,13 +24,16 @@ strate-core = { git = "https://github.com/Crawford-Young/strate", rev = "00569e9
 # The reader connection type strate-core's views take; same version strate-core locks.
 rusqlite = "0.41.1"
 
-# Terminal focus. Same version tauri already locks, so no second copy builds.
+# Terminal focus and the cursor restore. Same version tauri already locks, so no
+# second copy builds.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_System_Com",
   "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_LibraryLoader",
   "Win32_System_Ole",
+  "Win32_System_Threading",
   "Win32_System_Variant",
   "Win32_UI_Accessibility",
   "Win32_UI_WindowsAndMessaging",
