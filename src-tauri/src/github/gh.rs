@@ -11,12 +11,13 @@ use super::{GithubStatus, classify_failure, lock, parse_snapshot};
 
 /// Both searches in one request. The search strings are variables, so a login
 /// is never interpolated into the query text.
-pub const QUERY: &str = "query($prQuery:String!,$issueQuery:String!){prs:search(query:$prQuery,type:ISSUE,first:50){nodes{...on PullRequest{number title url isDraft repository{nameWithOwner} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}} issues:search(query:$issueQuery,type:ISSUE,first:50){nodes{...on Issue{number title url repository{nameWithOwner}}}}}";
+pub const QUERY: &str = "query($prQuery:String!,$issueQuery:String!){viewer{login} prs:search(query:$prQuery,type:ISSUE,first:50){nodes{...on PullRequest{number title url isDraft repository{nameWithOwner} commits(last:1){nodes{commit{statusCheckRollup{state}}}}}}} issues:search(query:$issueQuery,type:ISSUE,first:50){nodes{...on Issue{number title url repository{nameWithOwner}}}}}";
 
 /// The longest a single `gh` run may take before it is killed and counted as an
 /// error, so a hung network call can't stall the refresher forever. App exit
 /// joins the worker (`Refresher::stop`), so it can wait up to this long per run:
-/// about twice this on the first refresh (the login run, then the search run).
+/// about twice this on the first refresh (the login run, then the search run)
+/// and on a refresh that finds the account switched (a second search run).
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// How often a running `gh` is checked for exit.
@@ -49,8 +50,16 @@ fn snapshot_args(login: &str) -> Vec<String> {
     ]
 }
 
+/// The valid `data.viewer.login` of a search response, if it has one.
+fn viewer_login(json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    let login = value.pointer("/data/viewer/login")?.as_str()?;
+    valid_login(login).then(|| login.to_string())
+}
+
 /// One refresh through `run` (a `gh` invocation: args in, stdout or the
-/// failure's status out). The login is cached after its first success.
+/// failure's status out). The login is cached after its first success and
+/// replaced when a search reports a different signed-in account.
 pub struct Gh<R> {
     run: R,
     login: Mutex<Option<String>>,
@@ -66,7 +75,13 @@ impl<R: Fn(&[String]) -> Result<String, GithubStatus>> Gh<R> {
 
     pub fn fetch(&self) -> Fetched {
         let login = self.login()?;
-        let json = (self.run)(&snapshot_args(&login))?;
+        let mut json = (self.run)(&snapshot_args(&login))?;
+        // The search also names the signed-in account. When that is not the
+        // cached login, `gh auth switch` happened: remember it and search again.
+        if let Some(viewer) = viewer_login(&json).filter(|v| *v != login) {
+            *lock(&self.login) = Some(viewer.clone());
+            json = (self.run)(&snapshot_args(&viewer))?;
+        }
         parse_snapshot(&json).map_err(|_| GithubStatus::Error)
     }
 
@@ -367,6 +382,88 @@ mod tests {
                 snapshot_args("octo-cat"),
                 snapshot_args("octo-cat")
             ]
+        );
+    }
+
+    fn empty_for(viewer: &str) -> String {
+        format!(
+            r#"{{"data":{{"viewer":{{"login":"{viewer}"}},"prs":{{"nodes":[]}},"issues":{{"nodes":[]}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn the_search_asks_for_the_signed_in_login() {
+        assert!(QUERY.contains("viewer{login}"));
+    }
+
+    #[test]
+    fn a_matching_viewer_costs_no_extra_run() {
+        let (gh, calls) = fake(vec![
+            reply("octo-cat"),
+            reply(&empty_for("octo-cat")),
+            reply(&empty_for("octo-cat")),
+        ]);
+        assert_eq!(gh.fetch(), Ok((vec![], vec![])));
+        assert_eq!(gh.fetch(), Ok((vec![], vec![])));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            [
+                login_args(),
+                snapshot_args("octo-cat"),
+                snapshot_args("octo-cat")
+            ]
+        );
+    }
+
+    #[test]
+    fn a_switched_account_is_searched_again_at_once_and_remembered() {
+        let (gh, calls) = fake(vec![
+            reply("old-acct"),
+            reply(&empty_for("new-acct")),
+            reply(&empty_for("new-acct")),
+            reply(&empty_for("new-acct")),
+        ]);
+        assert_eq!(gh.fetch(), Ok((vec![], vec![])));
+        assert_eq!(gh.fetch(), Ok((vec![], vec![])));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            [
+                login_args(),
+                snapshot_args("old-acct"),
+                snapshot_args("new-acct"),
+                snapshot_args("new-acct"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_switch_after_the_login_was_cached_is_followed_in_that_refresh() {
+        let (gh, calls) = fake(vec![
+            reply("old-acct"),
+            reply(&empty_for("old-acct")),
+            reply(&empty_for("new-acct")),
+            reply(&empty_for("new-acct")),
+        ]);
+        assert_eq!(gh.fetch(), Ok((vec![], vec![])));
+        assert_eq!(gh.fetch(), Ok((vec![], vec![])));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            [
+                login_args(),
+                snapshot_args("old-acct"),
+                snapshot_args("old-acct"),
+                snapshot_args("new-acct"),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_invalid_viewer_is_ignored() {
+        let (gh, calls) = fake(vec![reply("octo-cat"), reply(&empty_for("bad;login"))]);
+        assert_eq!(gh.fetch(), Ok((vec![], vec![])));
+        assert_eq!(
+            *calls.lock().unwrap(),
+            [login_args(), snapshot_args("octo-cat")]
         );
     }
 
