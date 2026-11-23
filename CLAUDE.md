@@ -10,6 +10,7 @@ Apps-domain rules: `~/code/apps/CLAUDE.md`. A fullscreen touch app for a 2560x72
 
 - Package manager and runtime is Bun (1.4.2, pinned in `packageManager`). Never npm, yarn or pnpm. `bunfig.toml` sets `[run] bun = true`, so no Node needed.
 - TypeScript is pinned `~6.0.3` because typescript-eslint's peer range is `<6.1.0`. Don't bump it until typescript-eslint widens.
+- `vitest` and `@vitest/coverage-v8` are pinned exactly to `5.1.0`: 5.1.1's forks pool calls `child.channel.unref()`, which Bun's child process lacks, so every test file fails to start under `[run] bun = true` (Dependabot #23 went red on it). Move them together once a release works under Bun.
 - Only the dark theme exists (`class="dark"` on `index.html`).
 - Dev server port 1421 is strict (`vite.config.ts` and Tauri `devUrl`), so it runs beside strate's 1420; don't let it fall back.
 
